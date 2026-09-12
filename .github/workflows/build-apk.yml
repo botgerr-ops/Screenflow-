@@ -18,21 +18,24 @@ jobs:
         with:
           gradle-version: "8.9"
       - name: Prepare permanent signing key
-        if: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 != '' }}
         env:
           SCREENFLOW_KEYSTORE_BASE64: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 }}
-        run: printf '%s' "$SCREENFLOW_KEYSTORE_BASE64" | base64 --decode > app/screenflow-release.keystore
-      - name: Build signed updateable APK
-        if: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 != '' }}
+        run: |
+          if [ -n "$SCREENFLOW_KEYSTORE_BASE64" ]; then
+            printf '%s' "$SCREENFLOW_KEYSTORE_BASE64" | base64 --decode > app/screenflow-release.keystore
+          fi
+      - name: Build APK
         env:
           SCREENFLOW_KEYSTORE_PATH: screenflow-release.keystore
           SCREENFLOW_KEYSTORE_PASSWORD: ${{ secrets.SCREENFLOW_KEYSTORE_PASSWORD }}
           SCREENFLOW_KEY_ALIAS: ${{ secrets.SCREENFLOW_KEY_ALIAS }}
           SCREENFLOW_KEY_PASSWORD: ${{ secrets.SCREENFLOW_KEY_PASSWORD }}
-        run: gradle assembleRelease
-      - name: Build temporary test APK
-        if: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 == '' }}
-        run: gradle assembleDebug
+        run: |
+          if [ -f app/screenflow-release.keystore ]; then
+            gradle assembleRelease
+          else
+            gradle assembleDebug
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: screenflow-player-apk

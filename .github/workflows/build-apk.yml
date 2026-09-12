@@ -42,3 +42,5 @@ jobs:
         with:
           name: screenflow-player-apk
           path: app/build/outputs/apk/**/*.apk
+
+# Permanent ScreenFlow release signing

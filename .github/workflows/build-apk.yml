@@ -22,7 +22,7 @@ jobs:
           SCREENFLOW_KEYSTORE_BASE64: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$SCREENFLOW_KEYSTORE_BASE64" ]; then
-            printf '%s' "$SCREENFLOW_KEYSTORE_BASE64" | base64 --decode > app/screenflow-release.keystore
+            printf '%s' "$SCREENFLOW_KEYSTORE_BASE64" | base64 --decode --ignore-garbage > app/screenflow-release.keystore
           fi
       - name: Build APK
         env:

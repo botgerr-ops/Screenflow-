@@ -1,5 +1,8 @@
 package nl.screenflow.player;
 
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
@@ -20,6 +23,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.view.animation.AccelerateDecelerateInterpolator;
 
 import org.json.JSONObject;
 
@@ -38,6 +42,7 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private static final String BASE_URL = "https://screenflow.botger-r.chatgpt.site";
     private static final long POLL_INTERVAL_MS = 5000;
+    private static final long SPLASH_DURATION_MS = 20000;
     private static final long HEARTBEAT_INTERVAL_MS = 30000;
     private static final long RECONNECT_INTERVAL_MS = 10000;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -75,7 +80,7 @@ public class MainActivity extends Activity {
         handler.postDelayed(() -> {
             String playerToken = getPreferences(MODE_PRIVATE).getString("player_token", null);
             if (playerToken == null) showPairingScreen(); else openPlayer(playerToken);
-        }, 1200);
+        }, SPLASH_DURATION_MS);
     }
 
     private void showSplash() {
@@ -83,19 +88,82 @@ public class MainActivity extends Activity {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setGravity(Gravity.CENTER);
         layout.setBackgroundColor(Color.rgb(16, 17, 20));
-        ImageView mark = new ImageView(this);
-        mark.setImageResource(R.mipmap.ic_launcher);
-        LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(132), dp(132));
+        ImageView mark = brandedMark(154);
+        LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(154), dp(154));
         TextView name = label("SCREENFLOW", 24, Color.rgb(242, 255, 98));
         name.setLetterSpacing(.18f);
         name.setPadding(0, dp(22), 0, 0);
-        TextView subtitle = label("PLAYER", 12, Color.rgb(135, 137, 143));
+        TextView subtitle = label("DIGITAL SIGNAGE PLAYER", 12, Color.rgb(135, 137, 143));
         subtitle.setLetterSpacing(.28f);
         subtitle.setPadding(0, dp(8), 0, 0);
+        TextView startupStatus = label("PLAYER VOORBEREIDEN", 11, Color.rgb(190, 192, 196));
+        startupStatus.setLetterSpacing(.14f);
+        startupStatus.setPadding(0, dp(48), 0, 0);
+        LinearLayout dots = new LinearLayout(this);
+        dots.setGravity(Gravity.CENTER);
+        dots.setPadding(0, dp(14), 0, 0);
+        for (int index = 0; index < 3; index++) {
+            View dot = new View(this);
+            GradientDrawable dotBackground = new GradientDrawable();
+            dotBackground.setColor(index == 0 ? Color.rgb(242, 255, 98) : Color.rgb(62, 64, 68));
+            dotBackground.setCornerRadius(dp(3));
+            dot.setBackground(dotBackground);
+            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(dp(index == 0 ? 28 : 8), dp(6));
+            dotParams.setMargins(dp(4), 0, dp(4), 0);
+            dots.addView(dot, dotParams);
+        }
         layout.addView(mark, markParams);
         layout.addView(name);
         layout.addView(subtitle);
+        layout.addView(startupStatus);
+        layout.addView(dots);
         setContentView(layout);
+        animateSplash(mark);
+        handler.postDelayed(() -> startupStatus.setText("VERBINDING CONTROLEREN"), 5000);
+        handler.postDelayed(() -> startupStatus.setText("CONTENT KLAARZETTEN"), 10000);
+        handler.postDelayed(() -> startupStatus.setText("SCREENFLOW STARTEN"), 15000);
+    }
+
+    private ImageView brandedMark(int size) {
+        ImageView mark = new ImageView(this);
+        mark.setImageResource(R.drawable.ic_launcher_foreground);
+        mark.setPadding(dp(12), dp(12), dp(12), dp(12));
+        GradientDrawable background = new GradientDrawable();
+        background.setColor(Color.rgb(242, 255, 98));
+        background.setCornerRadius(dp(size / 5));
+        mark.setBackground(background);
+        return mark;
+    }
+
+    private void animateSplash(View mark) {
+        mark.setAlpha(0f);
+        mark.setScaleX(.72f);
+        mark.setScaleY(.72f);
+        ObjectAnimator fade = ObjectAnimator.ofFloat(mark, View.ALPHA, 0f, 1f);
+        ObjectAnimator growX = ObjectAnimator.ofFloat(mark, View.SCALE_X, .72f, 1f);
+        ObjectAnimator growY = ObjectAnimator.ofFloat(mark, View.SCALE_Y, .72f, 1f);
+        AnimatorSet entrance = new AnimatorSet();
+        entrance.playTogether(fade, growX, growY);
+        entrance.setDuration(900);
+        entrance.setInterpolator(new AccelerateDecelerateInterpolator());
+        entrance.start();
+
+        ObjectAnimator floatUp = ObjectAnimator.ofFloat(mark, View.TRANSLATION_Y, 0f, -dp(9), 0f);
+        floatUp.setDuration(2800);
+        floatUp.setRepeatCount(ValueAnimator.INFINITE);
+        floatUp.setInterpolator(new AccelerateDecelerateInterpolator());
+        floatUp.setStartDelay(900);
+        floatUp.start();
+        ObjectAnimator pulseX = ObjectAnimator.ofFloat(mark, View.SCALE_X, 1f, 1.035f, 1f);
+        ObjectAnimator pulseY = ObjectAnimator.ofFloat(mark, View.SCALE_Y, 1f, 1.035f, 1f);
+        pulseX.setDuration(2800);
+        pulseY.setDuration(2800);
+        pulseX.setRepeatCount(ValueAnimator.INFINITE);
+        pulseY.setRepeatCount(ValueAnimator.INFINITE);
+        pulseX.setStartDelay(900);
+        pulseY.setStartDelay(900);
+        pulseX.start();
+        pulseY.start();
     }
 
     private void showPairingScreen() {
@@ -105,14 +173,21 @@ public class MainActivity extends Activity {
         layout.setPadding(48, 48, 48, 48);
         layout.setBackgroundColor(Color.rgb(16, 17, 20));
 
-        TextView logo = label("SCREENFLOW", 22, Color.rgb(242, 255, 98));
+        ImageView logo = brandedMark(104);
+        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(dp(104), dp(104));
         TextView title = label("Koppel deze player", 34, Color.WHITE);
-        title.setPadding(0, 36, 0, 12);
+        title.setPadding(0, dp(28), 0, dp(12));
         status = label("Verbinding maken…", 18, Color.rgb(155, 157, 163));
+        status.setPadding(dp(28), dp(18), dp(28), dp(18));
+        GradientDrawable statusBackground = new GradientDrawable();
+        statusBackground.setColor(Color.rgb(242, 255, 98));
+        statusBackground.setCornerRadius(dp(18));
+        status.setBackground(statusBackground);
+        status.setTextColor(Color.rgb(16, 17, 20));
         ProgressBar spinner = new ProgressBar(this);
         LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(56, 56);
         spinnerParams.topMargin = 36;
-        layout.addView(logo); layout.addView(title); layout.addView(status); layout.addView(spinner, spinnerParams);
+        layout.addView(logo, logoParams); layout.addView(title); layout.addView(status); layout.addView(spinner, spinnerParams);
         setContentView(layout);
         registerDevice();
     }

@@ -1,5 +1,7 @@
 name: Build ScreenFlow APK
 
+# Permanent signing enabled
+
 on:
   workflow_dispatch:
   push:

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 360" role="img" aria-labelledby="title">
+  <title id="title">ScreenFlow logo</title>
+  <g transform="translate(24 18) scale(.63)">
+    <rect width="512" height="512" rx="88" fill="#F2FF62"/>
+    <rect x="72" y="112" width="368" height="236" rx="34" fill="#101114"/>
+    <path fill="#F2FF62" d="M104 148h142v164H104z"/>
+    <path fill="#fff" d="M270 148h138v74H270zm0 90h138v74H270z"/>
+    <path fill="#101114" d="m146 190 66 40-66 40zM292 204l31-34 31 34 20-21 26 29H280z"/>
+    <circle cx="374" cy="169" r="13" fill="#101114"/>
+    <rect x="294" y="259" width="91" height="13" rx="6.5" fill="#101114"/>
+    <rect x="294" y="284" width="70" height="13" rx="6.5" fill="#101114"/>
+    <path fill="#101114" d="M226 348h60v31h48q15 0 15 17H163q0-17 15-17h48z"/>
+  </g>
+  <text x="390" y="225" fill="#101114" font-family="Inter, Arial, sans-serif" font-size="150" font-weight="800" letter-spacing="-7">Screen<tspan fill="#B8C900">Flow</tspan></text>
+</svg>

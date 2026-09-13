@@ -10,6 +10,7 @@ let error = "";
 let query = "";
 let activePage = "overview";
 let selectedCustomerId = "";
+let identity = null;
 
 function loadSession() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
@@ -52,8 +53,67 @@ async function request(path, options={}) {
   }
 }
 
+async function resolveIdentity() {
+  const metadata=session?.user?.app_metadata||{};
+  const role=String(metadata.role||"").toLowerCase();
+  if(role==="customer_admin") {
+    identity={
+      role,
+      organizationId:String(metadata.organization_id||""),
+      forcePasswordChange:metadata.force_password_change===true,
+      name:session?.user?.user_metadata?.full_name||session?.user?.email||"Klant"
+    };
+    if(!identity.organizationId) throw new Error("Dit klantaccount is nog niet aan een organisatie gekoppeld.");
+    return;
+  }
+  const userId=session?.user?.id;
+  const rows=await request(`/rest/v1/profiles?select=role,full_name&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
+  const profile=rows?.[0];
+  if(String(profile?.role||"").toLowerCase()!=="manager") throw new Error("Dit account heeft geen toegang tot ScreenFlow Admin.");
+  identity={role:"manager",organizationId:"",forcePasswordChange:false,name:profile?.full_name||session?.user?.email||"Manager"};
+}
+function isManager(){return identity?.role==="manager"}
+async function bootAuthenticated(){
+  try {
+    await resolveIdentity();
+    if(identity.forcePasswordChange){renderPasswordChange();return}
+    await Promise.all([loadCustomers(),loadPlayers()]);
+    renderDashboard();
+  } catch(e) {
+    saveSession(null);
+    identity=null;
+    error=typeof e==="string"?e:(e?.message||String(e));
+    renderLogin();
+  }
+}
+function renderPasswordChange(){
+  app.innerHTML=`<main class="login-screen"><form class="login-card password-card" id="password-change-form">${logo()}<p class="eyebrow">EERSTE AANMELDING</p><h1>Kies je eigen wachtwoord.</h1><p>Het tijdelijke wachtwoord moet eerst worden vervangen. ScreenFlow en de Manager kunnen je nieuwe wachtwoord daarna niet bekijken.</p><label>Nieuw wachtwoord<input id="new-password" autocomplete="new-password" type="password" minlength="12" required></label><label>Herhaal wachtwoord<input id="repeat-password" autocomplete="new-password" type="password" minlength="12" required></label><small class="password-hint">Minimaal 12 tekens. Gebruik bij voorkeur woorden, cijfers en een teken.</small><p class="login-error ${error?"":"hidden"}">${esc(error)}</p><button class="primary" id="password-change-button">Wachtwoord opslaan</button><button class="text-button" type="button" id="password-logout">Uitloggen</button></form></main>`;
+  document.getElementById("password-change-form").onsubmit=changeFirstPassword;
+  document.getElementById("password-logout").onclick=()=>{saveSession(null);identity=null;error="";renderLogin()};
+}
+async function changeFirstPassword(event){
+  event.preventDefault();error="";
+  const password=document.getElementById("new-password").value;
+  const repeated=document.getElementById("repeat-password").value;
+  if(password.length<12){error="Gebruik minimaal 12 tekens.";renderPasswordChange();return}
+  if(password!==repeated){error="De wachtwoorden zijn niet hetzelfde.";renderPasswordChange();return}
+  const button=document.getElementById("password-change-button");button.disabled=true;button.textContent="Opslaan…";
+  try {
+    await request("/auth/v1/user",{method:"PUT",body:JSON.stringify({password})});
+    await request("/functions/v1/manager-customer-admin",{method:"POST",body:JSON.stringify({action:"complete_password_change"})});
+    session.user.app_metadata={...(session.user.app_metadata||{}),force_password_change:false};
+    saveSession(session);
+    identity.forcePasswordChange=false;
+    await Promise.all([loadCustomers(),loadPlayers()]);
+    renderDashboard();
+  } catch(e) {
+    error="Wachtwoord wijzigen mislukt: "+(typeof e==="string"?e:(e?.message||e));
+    renderPasswordChange();
+  }
+}
+
 function renderLogin() {
-  app.innerHTML = `<main class="login-screen"><form class="login-card" id="login-form">${logo()}<p class="eyebrow">SCREENFLOW MANAGER</p><h1>Welkom terug.</h1><p>Log in met jouw beveiligde ScreenFlow Manager-account.</p><label>E-mailadres<input id="email" autocomplete="email" type="email" required></label><label>Wachtwoord<input id="password" autocomplete="current-password" type="password" required></label><p class="login-error ${error?'':'hidden'}">${esc(error)}</p><button class="primary" id="login-button">Inloggen</button></form></main>`;
+  app.innerHTML = `<main class="login-screen"><form class="login-card" id="login-form">${logo()}<p class="eyebrow">SCREENFLOW ADMIN</p><h1>Welkom terug.</h1><p>Log in met jouw beveiligde ScreenFlow-account.</p><label>E-mailadres<input id="email" autocomplete="email" type="email" required></label><label>Wachtwoord<input id="password" autocomplete="current-password" type="password" required></label><p class="login-error ${error?'':'hidden'}">${esc(error)}</p><button class="primary" id="login-button">Inloggen</button></form></main>`;
   document.getElementById("login-form").onsubmit = login;
 }
 async function login(event) {
@@ -61,7 +121,7 @@ async function login(event) {
   const button=document.getElementById("login-button"); button.disabled=true; button.textContent="Inloggen…";
   try {
     const data=await nativeRequest("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email:document.getElementById("email").value.trim(),password:document.getElementById("password").value})});
-    saveSession(data); await Promise.all([loadCustomers(),loadPlayers()]); renderDashboard();
+    saveSession(data); await bootAuthenticated();
   } catch(e) {
     const message=typeof e==="string" ? e : String(e?.message||e||"Onbekende fout");
     if(/invalid login credentials/i.test(message)) error="E-mailadres of wachtwoord is niet juist.";
@@ -74,7 +134,8 @@ async function login(event) {
 async function loadCustomers() {
   try {
     const select=encodeURIComponent("id,name,contact_name,contact_email,created_at,licenses(id,status,player_limit,valid_until),devices(id)");
-    const rows=await request(`/rest/v1/organizations?select=${select}&order=created_at.desc`);
+    const scope=isManager()?"":`&id=eq.${encodeURIComponent(identity.organizationId)}`;
+    const rows=await request(`/rest/v1/organizations?select=${select}&order=created_at.desc${scope}`);
     customers=(rows||[]).map(o=>{const l=Array.isArray(o.licenses)?o.licenses[0]:o.licenses;return{id:o.id,licenseId:l?.id||"",name:o.name,contactName:o.contact_name||"",email:o.contact_email||"",status:l?.status||"blocked",playerLimit:l?.player_limit||0,playersUsed:o.devices?.length||0,expiresAt:l?.valid_until||new Date().toISOString().slice(0,10)}});
     error="";
   } catch(e) { error="Kon de gegevens niet laden: "+(typeof e==="string"?e:(e?.message||e)); customers=[]; }
@@ -82,7 +143,8 @@ async function loadCustomers() {
 
 async function loadPlayers() {
   try {
-    const rows=await request("/rest/v1/devices?select=*");
+    const scope=isManager()?"":`&organization_id=eq.${encodeURIComponent(identity.organizationId)}`;
+    const rows=await request(`/rest/v1/devices?select=*${scope}`);
     players=(rows||[]).map(d=>({
       id:d.id, name:d.name||d.device_name||"Naamloze player",
       platform:d.platform||"Android", version:d.app_version||"—",
@@ -110,13 +172,14 @@ function dateToIso(value) {
 
 function nav(page,icon,label){return `<button data-page="${page}" class="${activePage===page?"active":""}">${icon} ${label}</button>`}
 function renderDashboard() {
+  if(!isManager()){renderCustomerDashboard();return}
   const shown=customers.filter(c=>(c.name+c.contactName+c.email).toLowerCase().includes(query.toLowerCase()));
   const active=customers.filter(c=>c.status==="active").length, licenses=customers.reduce((n,c)=>n+c.playerLimit,0), used=players.filter(p=>p.organizationId).length;
   const selected=customers.find(c=>c.id===selectedCustomerId);
   const title=activePage==="customer"?(selected?.name||"Klant"):activePage==="players"?"Playerbeheer":activePage==="customers"?"Klanten":"Goedemorgen, Robin.";
   const subtitle=activePage==="customer"?"Klantgegevens, licentie, account en gekoppelde players.":activePage==="players"?"Koppel, controleer en bedien Android-players op afstand.":"Beheer klanten en playerlicenties vanuit één plek.";
   const action=activePage==="customer"?'<button class="small-action back-button" id="back-customers">← Terug naar klanten</button>':activePage==="players"?'<button class="primary" id="pair-player">＋ Player koppelen</button>':'<button class="primary" id="new-customer">＋ Nieuwe klant</button>';
-  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>MANAGER</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("players","▰","Players")}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW MANAGER</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header><div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}${activePage==="customer"?customerDetailPanel(selected):activePage==="players"?playersPanel():customersPanel(shown)}</section></main><div id="modal-root"></div>`;
+  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("players","▰","Players")}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header><div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}${activePage==="customer"?customerDetailPanel(selected):activePage==="players"?playersPanel():customersPanel(shown)}</section></main><div id="modal-root"></div>`;
   document.getElementById("logout").onclick=()=>{saveSession(null);customers=[];players=[];renderLogin()};
   document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>{activePage=b.dataset.page;query="";error="";renderDashboard()});
   document.getElementById("new-customer")?.addEventListener("click",renderModal);
@@ -131,11 +194,22 @@ function renderDashboard() {
   document.querySelectorAll("[data-extend]").forEach(b=>b.onclick=()=>{const c=customers.find(x=>x.licenseId===b.dataset.extend);const base=Math.max(Date.now(),new Date(c.expiresAt+"T12:00:00").getTime());updateLicense(c.licenseId,{valid_until:new Date(base+365*86400000).toISOString().slice(0,10)})});
   document.querySelectorAll("[data-command]").forEach(b=>b.onclick=()=>sendCommand(b.dataset.player,b.dataset.command));
 }
+function renderCustomerDashboard(){
+  const customer=customers[0];
+  const ownPlayers=players.filter(p=>p.organizationId===identity.organizationId);
+  const active=customer?.status==="active"&&new Date((customer?.expiresAt||"1970-01-01")+"T23:59:59").getTime()>=Date.now();
+  const title=customer?.name||"Mijn organisatie";
+  app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav><button class="active">▦ Overzicht</button><button id="customer-players">▰ Players</button><button disabled>▧ Media <small>Binnenkort</small></button><button disabled>≡ Planning <small>Binnenkort</small></button></nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN</p><h1>Welkom, ${esc(identity.name)}.</h1><p>Beheer de narrowcasting van ${esc(title)}.</p></div></header><div class="stats customer-stats"><article class="${active?"lime-card":""}"><span class="stat-icon">▣</span><div><small>Licentie</small><strong class="compact-stat">${active?"Actief":"Niet actief"}</strong><em>Geldig tot ${fmt(customer?.expiresAt)}</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${ownPlayers.length} / ${customer?.playerLimit||0}</strong><em>${ownPlayers.filter(online).length} online</em></div></article><article><span class="stat-icon">●</span><div><small>Systeemstatus</small><strong class="compact-stat">${ownPlayers.some(online)?"Online":"Stand-by"}</strong><em>${ownPlayers.length?"Players worden gecontroleerd":"Nog geen player gekoppeld"}</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}<section class="panel"><div class="panel-head"><div><h2>Players van ${esc(title)}</h2><p>Alleen de players van jouw organisatie zijn zichtbaar.</p></div><button class="primary" id="customer-pair-player" ${!active||ownPlayers.length>=(customer?.playerLimit||0)?"disabled":""}>＋ Player koppelen</button></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Versie</th><th>Laatste contact</th></tr></thead><tbody>${ownPlayers.length?ownPlayers.map(p=>`<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}</small></div></div></td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span></td><td>${esc(p.version)}</td><td>${fmt(p.lastSeen)}</td></tr>`).join(""):'<tr><td colspan="4" class="empty">Nog geen players gekoppeld. De echte koppelprocedure voegen we in de volgende stap toe.</td></tr>'}</tbody></table></div></section></section></main>`;
+  document.getElementById("logout").onclick=()=>{saveSession(null);identity=null;customers=[];players=[];renderLogin()};
+  document.getElementById("customer-pair-player")?.addEventListener("click",()=>{error="Playerkoppeling wordt aangesloten zodra de Android-testplayer beschikbaar is.";renderCustomerDashboard()});
+  document.getElementById("customer-players")?.addEventListener("click",()=>document.querySelector(".panel")?.scrollIntoView({behavior:"smooth"}));
+}
+
 function customersPanel(shown){return `<section class="panel"><div class="panel-head"><div><h2>Klanten</h2><p>Licenties, looptijd en gebruik.</p></div><label class="search">⌕<input id="search" value="${esc(query)}" placeholder="Zoek klant"></label></div><div class="table-wrap"><table><thead><tr><th>Klant</th><th>Status</th><th>Players</th><th>Geldig tot</th><th></th></tr></thead><tbody>${shown.length?shown.map(rowHtml).join(""):'<tr><td colspan="5" class="empty">Nog geen klanten. Maak je eerste klant aan.</td></tr>'}</tbody></table></div></section>`}
 function customerDetailPanel(c){
   if(!c)return '<section class="panel"><div class="empty">Klant niet gevonden.</div></section>';
   const customerPlayers=players.filter(p=>p.organizationId===c.id);
-  return `<div class="customer-detail"><section class="detail-grid"><article class="detail-card"><p class="eyebrow">KLANTGEGEVENS</p><h2>${esc(c.name)}</h2><dl><dt>Contactpersoon</dt><dd>${esc(c.contactName||"—")}</dd><dt>E-mailadres</dt><dd>${esc(c.email||"—")}</dd><dt>Klantnummer</dt><dd class="code-value">${esc(c.id)}</dd></dl></article><article class="detail-card"><p class="eyebrow">LICENTIE</p><h2>${c.playerLimit} player${c.playerLimit===1?"":"s"}</h2><dl><dt>Status</dt><dd><span class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</span></dd><dt>In gebruik</dt><dd>${c.playersUsed} van ${c.playerLimit}</dd><dt>Geldig tot</dt><dd>${fmt(c.expiresAt)}</dd></dl></article><article class="detail-card account-card"><p class="eyebrow">ADMINACCOUNT</p><h2>${esc(c.email||"Nog geen e-mail")}</h2><p>Het definitieve wachtwoord is beveiligd door Supabase en kan nooit in ScreenFlow Manager worden bekeken.</p><button class="primary" id="customer-admin-access" ${c.email?"":"disabled"}>Eenmalige toegang maken</button><small>Bij een bestaand account wordt het oude wachtwoord vervangen.</small></article></section><section class="panel"><div class="panel-head"><div><h2>Players van ${esc(c.name)}</h2><p>${customerPlayers.length} gekoppeld · ${customerPlayers.filter(online).length} online</p></div></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Versie</th><th>Laatste contact</th></tr></thead><tbody>${customerPlayers.length?customerPlayers.map(p=>`<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}</small></div></div></td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span></td><td>${esc(p.version)}</td><td>${fmt(p.lastSeen)}</td></tr>`).join(""):'<tr><td colspan="4" class="empty">Deze klant heeft nog geen gekoppelde players.</td></tr>'}</tbody></table></div></section></div>`;
+  return `<div class="customer-detail"><section class="detail-grid"><article class="detail-card"><p class="eyebrow">KLANTGEGEVENS</p><h2>${esc(c.name)}</h2><dl><dt>Contactpersoon</dt><dd>${esc(c.contactName||"—")}</dd><dt>E-mailadres</dt><dd>${esc(c.email||"—")}</dd><dt>Klantnummer</dt><dd class="code-value">${esc(c.id)}</dd></dl></article><article class="detail-card"><p class="eyebrow">LICENTIE</p><h2>${c.playerLimit} player${c.playerLimit===1?"":"s"}</h2><dl><dt>Status</dt><dd><span class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</span></dd><dt>In gebruik</dt><dd>${c.playersUsed} van ${c.playerLimit}</dd><dt>Geldig tot</dt><dd>${fmt(c.expiresAt)}</dd></dl></article><article class="detail-card account-card"><p class="eyebrow">ADMINACCOUNT</p><h2>${esc(c.email||"Nog geen e-mail")}</h2><p>Het definitieve wachtwoord is beveiligd door Supabase en kan nooit in ScreenFlow Admin worden bekeken.</p><button class="primary" id="customer-admin-access" ${c.email?"":"disabled"}>Eenmalige toegang maken</button><small>Bij een bestaand account wordt het oude wachtwoord vervangen.</small></article></section><section class="panel"><div class="panel-head"><div><h2>Players van ${esc(c.name)}</h2><p>${customerPlayers.length} gekoppeld · ${customerPlayers.filter(online).length} online</p></div></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Versie</th><th>Laatste contact</th></tr></thead><tbody>${customerPlayers.length?customerPlayers.map(p=>`<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}</small></div></div></td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span></td><td>${esc(p.version)}</td><td>${fmt(p.lastSeen)}</td></tr>`).join(""):'<tr><td colspan="4" class="empty">Deze klant heeft nog geen gekoppelde players.</td></tr>'}</tbody></table></div></section></div>`;
 }
 function renderAdminAccessModal(c){
   document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="admin-access-form"><div class="modal-title"><div><p class="eyebrow">EENMALIGE TOEGANG</p><h2>Adminaccount voor ${esc(c.name)}</h2></div><button type="button" id="close">×</button></div><p class="modal-copy">ScreenFlow maakt een sterk tijdelijk wachtwoord. Het wordt na aanmaak één keer getoond en moet bij de eerste login direct worden gewijzigd.</p><label>Naam<input id="admin-name" required value="${esc(c.contactName)}"></label><label>E-mailadres<input id="admin-email" required type="email" value="${esc(c.email)}"></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="admin-create-button">Toegang genereren</button></div></form></div>`;
@@ -209,5 +283,5 @@ async function createCustomer(event) {
   }
 }
 
-async function start() { if(!session){renderLogin();return} await Promise.all([loadCustomers(),loadPlayers()]);renderDashboard(); }
+async function start() { if(!session){renderLogin();return} await bootAuthenticated(); }
 start();

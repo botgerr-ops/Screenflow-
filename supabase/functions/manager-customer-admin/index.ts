@@ -1,6 +1,6 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const FUNCTION_VERSION = "screenflow-admin-v5";
+const FUNCTION_VERSION = "screenflow-admin-v6";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,6 +34,17 @@ Deno.serve(async (req) => {
     const { data: authData, error: authError } = await admin.auth.getUser(token);
     if (authError || !authData.user) return json({ message: "Ongeldige sessie" }, 401);
 
+    const body = await req.json();
+    if (body.action === "complete_password_change") {
+      const role = String(authData.user.app_metadata?.role || "").toLowerCase();
+      if (role !== "customer_admin") return json({ message: "Alleen een klantbeheerder kan deze stap afronden" }, 403);
+      const { error } = await admin.auth.admin.updateUserById(authData.user.id, {
+        app_metadata: { ...authData.user.app_metadata, force_password_change: false },
+      });
+      if (error) throw error;
+      return json({ ok: true, password_change_completed: true });
+    }
+
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     let rpcManager = false;
     if (anonKey) {
@@ -53,7 +64,6 @@ Deno.serve(async (req) => {
       }, 403);
     }
 
-    const body = await req.json();
     if (body.action !== "issue_temporary_access") return json({ message: "Ongeldige actie" }, 400);
     const organizationId = String(body.organization_id || "");
     const email = String(body.email || "").trim().toLowerCase();

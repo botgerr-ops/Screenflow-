@@ -88,6 +88,26 @@ with check (public.is_manager());
 
 grant select, insert, update on public.support_requests to authenticated;
 
+
+create or replace function public.current_screenflow_identity()
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $
+  select jsonb_build_object(
+    'role', coalesce(p.role::text, ''),
+    'full_name', coalesce(nullif(p.full_name, ''), auth.jwt() ->> 'email')
+  )
+  from public.profiles p
+  where p.user_id = auth.uid()
+  limit 1;
+$;
+
+revoke all on function public.current_screenflow_identity() from public;
+grant execute on function public.current_screenflow_identity() to authenticated;
+
 create or replace function public.manager_update_customer(
   p_organization_id uuid,
   p_name text,

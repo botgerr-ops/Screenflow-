@@ -28,8 +28,25 @@ Deno.serve(async (req) => {
     const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
     const { data: authData, error: authError } = await admin.auth.getUser(token);
     if (authError || !authData.user) return json({ message: "Ongeldige sessie" }, 401);
-    const { data: profile } = await admin.from("profiles").select("role").eq("user_id", authData.user.id).single();
-    if (profile?.role !== "manager") return json({ message: "Geen managerrechten" }, 403);
+
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    let rpcManager = false;
+    if (anonKey) {
+      const userClient = createClient(url, anonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data } = await userClient.rpc("is_manager");
+      rpcManager = data === true;
+    }
+    const { data: profile, error: profileError } = await admin
+      .from("profiles").select("role").eq("user_id", authData.user.id).maybeSingle();
+    const profileManager = String(profile?.role || "").trim().toLowerCase() === "manager";
+    if (!rpcManager && !profileManager) {
+      return json({
+        message: `Geen managerrechten voor ${authData.user.email || authData.user.id}; profielrol: ${profileError ? "niet leesbaar" : (profile?.role || "ontbreekt")}`,
+      }, 403);
+    }
 
     const body = await req.json();
     if (body.action !== "issue_temporary_access") return json({ message: "Ongeldige actie" }, 400);

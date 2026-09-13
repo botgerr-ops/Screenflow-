@@ -41,5 +41,5 @@ pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![supabase_request])
     .run(tauri::generate_context!())
-    .expect("ScreenFlow Manager kon niet worden gestart");
+    .expect("ScreenFlow Admin kon niet worden gestart");
 }

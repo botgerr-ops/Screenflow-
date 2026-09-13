@@ -44,10 +44,17 @@ async function login(event) {
   event.preventDefault(); error="";
   const button=document.getElementById("login-button"); button.disabled=true; button.textContent="Inloggen…";
   try {
-    const response=await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`,{method:"POST",headers:{apikey:SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value,password:document.getElementById("password").value})});
+    const response=await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`,{method:"POST",headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value.trim(),password:document.getElementById("password").value})});
     const data=await response.json(); if(!response.ok) throw new Error(data.error_description || data.message || "Inloggen mislukt");
     saveSession(data); await loadCustomers(); renderDashboard();
-  } catch(e) { error="Inloggen mislukt. Controleer je e-mailadres en wachtwoord."; renderLogin(); }
+  } catch(e) {
+    const message=String(e?.message||"");
+    if(/invalid login credentials/i.test(message)) error="E-mailadres of wachtwoord is niet juist.";
+    else if(/email not confirmed/i.test(message)) error="Je e-mailadres is nog niet bevestigd in Supabase.";
+    else if(/failed to fetch|network/i.test(message)) error="Geen verbinding met Supabase. Controleer internet of firewall.";
+    else error="Supabase: "+message;
+    renderLogin();
+  }
 }
 async function loadCustomers() {
   try {

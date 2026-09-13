@@ -139,13 +139,13 @@ create policy content_schedules_insert on public.content_schedules for insert to
 with check (
   (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
   and created_by = auth.uid()
-  and exists (select 1 from public.playlists p where p.id = playlist_id and p.organization_id = organization_id)
+  and exists (select 1 from public.playlists p where p.id = playlist_id and p.organization_id = content_schedules.organization_id)
 );
 create policy content_schedules_update on public.content_schedules for update to authenticated
 using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
 with check (
   (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
-  and exists (select 1 from public.playlists p where p.id = playlist_id and p.organization_id = organization_id)
+  and exists (select 1 from public.playlists p where p.id = playlist_id and p.organization_id = content_schedules.organization_id)
 );
 create policy content_schedules_delete on public.content_schedules for delete to authenticated
 using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);

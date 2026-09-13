@@ -5,3 +5,12 @@
 .date-editor{display:flex;align-items:center;gap:7px;min-width:215px}.license-date{width:118px;background:#0f110f;border:1px solid #343934;border-radius:8px;color:#f4f6f0;padding:7px 9px;font-size:12px;outline:0}.license-date:focus{border-color:var(--lime);box-shadow:0 0 0 2px #d9ff4320}.license-date::placeholder{color:#6f766d}
 
 .clickable-row{cursor:pointer;transition:background .15s}.clickable-row:hover{background:#1d211c}.back-button{padding:11px 14px}.customer-detail{display:grid;gap:18px}.detail-grid{display:grid;grid-template-columns:1fr .75fr 1.15fr;gap:14px}.detail-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.detail-card h2{margin-bottom:18px}.detail-card dl{display:grid;grid-template-columns:120px 1fr;gap:12px 16px;margin:0}.detail-card dt{color:var(--muted);font-size:12px}.detail-card dd{margin:0;font-size:14px}.code-value{font-family:monospace;font-size:11px!important;overflow-wrap:anywhere}.account-card p:not(.eyebrow){color:var(--muted);line-height:1.5;font-size:13px}.account-card>.primary{margin-top:9px}.account-card>small{display:block;color:#777f75;margin-top:10px}.modal-copy{color:var(--muted);line-height:1.5;font-size:14px}.temporary-password{display:flex;align-items:center;gap:10px;background:#0f110f;border:1px solid var(--lime);border-radius:12px;padding:15px;margin:20px 0}.temporary-password code{font-size:19px;letter-spacing:.08em;color:var(--lime);flex:1;user-select:all}@media(max-width:1050px){.detail-grid{grid-template-columns:1fr 1fr}.account-card{grid-column:1/-1}}
+
+.password-card{width:min(520px,calc(100vw - 32px))}
+.password-hint{display:block;color:#7f877c;font-size:12px;line-height:1.45;margin:-5px 0 16px}
+.text-button{width:100%;border:0;background:transparent;color:#9da49a;padding:12px;margin-top:5px}
+.customer-shell nav button small{float:right;color:#687064;font-size:9px;text-transform:uppercase;letter-spacing:.08em}
+.customer-shell nav button:disabled{opacity:.45;cursor:not-allowed}
+.compact-stat{font-size:20px!important;margin-top:7px!important}
+.customer-stats{grid-template-columns:repeat(3,1fr)}
+@media(max-width:820px){.customer-stats{grid-template-columns:1fr}}

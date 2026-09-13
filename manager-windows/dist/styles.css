@@ -110,3 +110,6 @@ nav button{display:flex;align-items:center;justify-content:space-between;gap:10p
   .playlist-add{grid-template-columns:1fr}.playlist-item{grid-template-columns:28px 1fr}.playlist-item>label,.playlist-item>div:last-child{grid-column:2}
   .weekday-grid{grid-template-columns:repeat(4,1fr)}
 }
+
+.ticket-toolbar{display:flex;gap:16px;justify-content:space-between;align-items:center;padding:16px 24px;flex-wrap:wrap}.ticket-toolbar [aria-pressed="true"]{background:#d8fa72;color:#152018}.ticket-toolbar .search{min-width:300px}.recovery-success{color:#246436;background:#edfae9;padding:12px;border-radius:8px}.request-thread p{white-space:pre-wrap;overflow-wrap:anywhere}
+

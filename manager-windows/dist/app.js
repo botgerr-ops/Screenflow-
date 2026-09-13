@@ -14,6 +14,8 @@ let selectedCustomerId = "";
 let customerPage = "overview";
 let identity = null;
 let notificationTimer = null;
+let requestFolder = "open";
+let ticketQuery = "";
 
 function loadSession() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
@@ -117,14 +119,16 @@ async function changeFirstPassword(event){
 }
 
 function renderLogin() {
-  app.innerHTML = `<main class="login-screen"><form class="login-card" id="login-form">${logo()}<p class="eyebrow">SCREENFLOW ADMIN</p><h1>Welkom terug.</h1><p>Log in met jouw beveiligde ScreenFlow-account.</p><label>E-mailadres<input id="email" autocomplete="email" type="email" required></label><label>Wachtwoord<input id="password" autocomplete="current-password" type="password" required></label><p class="login-error ${error?'':'hidden'}">${esc(error)}</p><button class="primary" id="login-button">Inloggen</button></form></main>`;
+  app.innerHTML = `<main class="login-screen"><form class="login-card" id="login-form">${logo()}<p class="eyebrow">SCREENFLOW ADMIN</p><h1>Welkom terug.</h1><p>Log in met jouw beveiligde ScreenFlow-account.</p><label>E-mailadres<input id="email" autocomplete="email" type="email" required></label><label>Wachtwoord<input id="password" autocomplete="current-password" type="password" required></label><p class="login-error ${error?'':'hidden'}">${esc(error)}</p><button class="primary" id="login-button">Inloggen</button><button class="text-button" type="button" id="forgot-password">Wachtwoord vergeten?</button></form></main>`;
   document.getElementById("login-form").onsubmit = login;
+  document.getElementById("forgot-password").onclick=()=>{error="";renderRecovery()};
 }
 async function login(event) {
   event.preventDefault(); error="";
   const button=document.getElementById("login-button"); button.disabled=true; button.textContent="Inloggen…";
   try {
     const data=await nativeRequest("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email:document.getElementById("email").value.trim(),password:document.getElementById("password").value})});
+    requestFolder="open";ticketQuery="";activePage="overview";customerPage="overview";
     saveSession(data); await bootAuthenticated();
   } catch(e) {
     const message=typeof e==="string" ? e : String(e?.message||e||"Onbekende fout");
@@ -153,7 +157,9 @@ async function loadPlayers() {
       id:d.id, name:d.name||d.device_name||"Naamloze player",
       platform:d.platform||"Android", version:d.app_version||"—",
       organizationId:d.organization_id||"", code:d.pairing_code||"",
-      lastSeen:d.last_seen_at||d.updated_at||d.created_at||null,
+      lastSeen:d.last_seen_at||null,
+      firmware:d.firmware_version||"Niet gemeld",
+      latestVersion:d.available_app_version||"",
       pendingCommand:d.pending_command||""
     }));
   } catch(e) { players=[]; }
@@ -171,9 +177,9 @@ function greeting(){
   const hour=new Date().getHours();
   return hour>=5&&hour<12?"Goedemorgen":hour>=12&&hour<18?"Goedemiddag":"Goedenavond";
 }
-function requestStatusLabel(value){return({new:"Nieuw",in_progress:"In behandeling",waiting_customer:"Wacht op klant",resolved:"Afgerond"})[value]||value}
+function requestStatusLabel(value){return({new:"Nieuw",in_progress:"In behandeling",waiting_customer:"Wacht op klant",resolved:"Wacht op bevestiging"})[value]||value}
 function priorityLabel(value){return({low:"Laag",normal:"Normaal",high:"Hoog",urgent:"Spoed"})[value]||value}
-function online(p){return p.lastSeen&&Date.now()-new Date(p.lastSeen).getTime()<90000}
+function online(p){const age=Date.now()-new Date(p.lastSeen).getTime();return Boolean(p.lastSeen)&&age>=0&&age<90000}
 
 function fmt(date) { if(!date)return "Nog nooit"; try { const value=String(date).includes("T")?date:date+"T12:00:00"; return new Intl.DateTimeFormat("nl-NL",{day:"numeric",month:"short",year:"numeric",hour:String(date).includes("T")?"2-digit":undefined,minute:String(date).includes("T")?"2-digit":undefined}).format(new Date(value)); } catch { return date; } }
 function dateForInput(date) {
@@ -239,7 +245,7 @@ function renderDashboard() {
   const title=activePage==="customer"?(selected?.name||"Klant"):activePage==="requests"?"Verzoeken":activePage==="customers"?"Klanten":`${greeting()}, ${identity.name}.`;
   const subtitle=activePage==="customer"?"Klantgegevens, licentie, account, players en verzoeken.":activePage==="requests"?"Alle openstaande klantvragen vanuit één plek.":"Beheer klanten en playerlicenties vanuit één plek.";
   const action=activePage==="customer"?'<button class="small-action back-button" id="back-customers">← Terug naar klanten</button>':activePage==="requests"?"":'<button class="primary" id="new-customer">＋ Nieuwe klant</button>';
-  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("requests","✉","Verzoeken",unreadManagerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header><div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}${activePage==="customer"?customerDetailPanel(selected):activePage==="requests"?requestsPanel():customersPanel(shown)}</section></main><div id="modal-root"></div>`;
+  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("requests","✉","Verzoeken",unreadManagerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header>${activePage==="overview"?`<div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>`:""}${error?`<p class="error-banner">${esc(error)}</p>`:""}${activePage==="customer"?customerDetailPanel(selected):activePage==="requests"?requestsPanel():customersPanel(shown)}</section></main><div id="modal-root"></div>`;
   document.getElementById("logout").onclick=()=>{stopNotificationPolling();saveSession(null);identity=null;customers=[];players=[];supportRequests=[];renderLogin()};
   document.querySelectorAll("[data-page]").forEach(b=>b.onclick=async()=>{activePage=b.dataset.page;query="";error="";if(activePage==="requests")await markManagerRequestsViewed();renderDashboard()});
   document.getElementById("new-customer")?.addEventListener("click",renderModal);
@@ -249,6 +255,7 @@ function renderDashboard() {
   document.getElementById("edit-customer")?.addEventListener("click",()=>selected&&renderEditCustomerModal(selected));
   document.querySelectorAll("[data-request-status]").forEach(select=>select.onchange=()=>updateRequestStatus(select.dataset.requestStatus,select.value));
   document.querySelectorAll("[data-reply-request]").forEach(button=>button.onclick=()=>renderManagerReplyModal(button.dataset.replyRequest));
+  bindTicketFolders();
   const search=document.getElementById("search"); if(search) search.oninput=e=>{query=e.target.value;renderDashboard();document.getElementById("search")?.focus()};
   document.querySelectorAll("[data-status]").forEach(b=>b.onclick=()=>updateLicense(b.dataset.id,{status:b.dataset.status==="active"?"blocked":"active"}));
   document.querySelectorAll("[data-save-date]").forEach(b=>b.onclick=()=>saveLicenseDate(b.dataset.saveDate));
@@ -272,7 +279,7 @@ function customerComingSoonPage(kind){
   return `<section class="panel coming-soon"><span class="coming-icon">${media?"▧":"≡"}</span><p class="eyebrow">${media?"MEDIA":"PLANNING"}</p><h2>${media?"Mediabibliotheek":"Contentplanning"}</h2><p>${media?"Hier komen afbeeldingen en video's die je naar players kunt sturen.":"Hier maak je straks per dag en tijdstip een afspeelschema."}</p><span class="status in_progress">Wordt opgebouwd</span></section>`;
 }
 function customerRequestsPage(ownRequests){
-  return `<section class="panel"><div class="panel-head"><div><h2>Mijn verzoeken</h2><p>Stuur een vraag of probleem rechtstreeks naar ScreenFlow.</p></div><button class="primary" id="new-request">＋ Nieuw verzoek</button></div>${customerRequestsHtml(ownRequests)}</section>`;
+  return `<section class="panel"><div class="panel-head"><div><h2>Mijn verzoeken</h2><p>Stuur een vraag of probleem rechtstreeks naar ScreenFlow.</p></div><button class="primary" id="new-request">＋ Nieuw verzoek</button></div>${ticketFolderBar(ownRequests)}${customerRequestsHtml(filterTickets(ownRequests))}</section>`;
 }
 function renderCustomerDashboard(){
   const customer=customers[0];
@@ -289,12 +296,14 @@ function renderCustomerDashboard(){
   document.getElementById("customer-pair-player")?.addEventListener("click",()=>{error="Playerkoppeling wordt aangesloten zodra de Android-testplayer beschikbaar is.";renderCustomerDashboard()});
   document.getElementById("new-request")?.addEventListener("click",renderNewRequestModal);
   document.querySelectorAll("[data-customer-reply]").forEach(button=>button.onclick=()=>renderCustomerReplyModal(button.dataset.customerReply));
+  bindTicketFolders();
+  document.querySelectorAll("[data-confirm-ticket]").forEach(b=>b.onclick=()=>confirmTicket(b.dataset.confirmTicket));
   bindContentPage();
 }
 
 function requestThreadHtml(r){
   const messages=r.support_request_messages||[];
-  const legacy=r.manager_note?[{sender_role:"manager",message:r.manager_note,created_at:r.updated_at||r.created_at}]:[];
+  const legacy=r.manager_note&&!messages.some(m=>m.message===r.manager_note)?[{sender_role:"manager",message:r.manager_note,created_at:r.updated_at||r.created_at}]:[];
   const all=[...legacy,...messages];
   return `<div class="request-thread"><div class="thread-message customer-message"><strong>Klant</strong><p>${esc(r.description)}</p><small>${fmt(r.created_at)}</small></div>${all.map(m=>`<div class="thread-message ${m.sender_role==="manager"?"manager-message":"customer-message"}"><strong>${m.sender_role==="manager"?"ScreenFlow":"Klant"}</strong><p>${esc(m.message)}</p><small>${fmt(m.created_at)}</small></div>`).join("")}</div>`;
 }
@@ -303,15 +312,15 @@ function requestStatusSelect(r){
 }
 function managerRequestCard(r,showCustomer=true){
   const customer=customers.find(c=>c.id===r.organization_id);
-  return `<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3>${showCustomer?`<small>${esc(customer?.name||"Onbekende klant")} · ${esc(customer?.customerNumber||"")}</small>`:""}${requestThreadHtml(r)}</div><div class="request-controls">${requestStatusSelect(r)}<button class="primary reply-button" data-reply-request="${esc(r.id)}">Reageren</button><small>${fmt(r.created_at)}</small></div></article>`;
+  return `<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.ticket_number||"—")} · ${esc(r.subject)}</h3>${showCustomer?`<small>${esc(customer?.name||"Onbekende klant")} · ${esc(customer?.customerNumber||"")}</small>`:""}${requestThreadHtml(r)}</div><div class="request-controls">${r.archived_at?`<span class="status active">Gearchiveerd</span>`:`${requestStatusSelect(r)}<button class="primary reply-button" data-reply-request="${esc(r.id)}">Reageren</button>`}<small>${fmt(r.created_at)}</small></div></article>`;
 }
 function customerRequestsHtml(rows){
-  return rows.length?`<div class="request-list">${rows.map(r=>`<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3>${requestThreadHtml(r)}</div><div class="request-controls"><span class="request-status ${esc(r.status)}">${requestStatusLabel(r.status)}</span><button class="primary reply-button" data-customer-reply="${esc(r.id)}">Reageren</button><small>${fmt(r.created_at)}</small></div></article>`).join("")}</div>`:'<div class="empty">Nog geen verzoeken ingediend.</div>';
+  return rows.length?`<div class="request-list">${rows.map(r=>`<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.ticket_number||"—")} · ${esc(r.subject)}</h3>${requestThreadHtml(r)}</div><div class="request-controls"><span class="request-status ${esc(r.status)}">${r.archived_at?"Gearchiveerd":requestStatusLabel(r.status)}</span>${r.archived_at?"":`${r.status==="resolved"?`<button class="primary" data-confirm-ticket="${esc(r.id)}">Ja, opgelost</button>`:""}<button class="primary reply-button" data-customer-reply="${esc(r.id)}">${r.status==="resolved"?"Nog niet opgelost / reageren":"Reageren"}</button>`}<small>${fmt(r.created_at)}</small></div></article>`).join("")}</div>`:'<div class="empty">Nog geen verzoeken ingediend.</div>';
 }
 function renderCustomerReplyModal(id){
   const r=supportRequests.find(item=>item.id===id);
-  if(!r)return;
-  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal reply-modal" id="customer-reply-form"><div class="modal-title"><div><p class="eyebrow">ANTWOORD AAN SCREENFLOW</p><h2>${esc(r.subject)}</h2></div><button type="button" id="close">×</button></div><div class="modal-thread">${requestThreadHtml(r)}</div><label>Jouw reactie<textarea id="customer-reply-message" minlength="1" maxlength="4000" rows="5" required autofocus></textarea></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="customer-reply-submit">Reactie versturen</button></div></form></div>`;
+  if(!r||r.archived_at)return;
+  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal reply-modal" id="customer-reply-form"><div class="modal-title"><div><p class="eyebrow">ANTWOORD AAN SCREENFLOW</p><h2>${esc(r.ticket_number||"—")} · ${esc(r.subject)}</h2></div><button type="button" id="close">×</button></div><div class="modal-thread">${requestThreadHtml(r)}</div><label>Jouw reactie<textarea id="customer-reply-message" minlength="1" maxlength="4000" rows="5" required autofocus></textarea></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="customer-reply-submit">Reactie versturen</button></div></form></div>`;
   const close=()=>document.getElementById("modal-root").innerHTML="";
   document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};
   document.getElementById("customer-reply-form").onsubmit=e=>sendCustomerReply(e,id);
@@ -329,22 +338,44 @@ async function sendCustomerReply(event,id){
     const p=document.getElementById("modal-error");p.textContent="Reactie versturen mislukt: "+(typeof e==="string"?e:(e?.message||e));p.classList.remove("hidden");button.disabled=false;button.textContent="Reactie versturen";
   }
 }
+function ticketFolderBar(rows){
+  return `<div class="ticket-toolbar"><div><button class="small-action" data-ticket-folder="open" aria-pressed="${requestFolder==='open'}">Openstaand (${rows.filter(r=>!r.archived_at).length})</button> <button class="small-action" data-ticket-folder="archive" aria-pressed="${requestFolder==='archive'}">▣ Archief (${rows.filter(r=>r.archived_at).length})</button></div><label class="search">⌕<input id="ticket-search" value="${esc(ticketQuery)}" placeholder="Zoek ticket, klant of oplossing"></label></div>`;
+}
+function filterTickets(rows){
+  const term=ticketQuery.toLowerCase().trim();
+  return rows.filter(r=>Boolean(r.archived_at)===(requestFolder==='archive')).filter(r=>{
+    const c=customers.find(c=>c.id===r.organization_id);
+    return [r.ticket_number,r.subject,r.description,r.manager_note,c?.name,c?.customerNumber,...(r.support_request_messages||[]).map(m=>m.message)].join(' ').toLowerCase().includes(term);
+  });
+}
+function bindTicketFolders(){
+  document.querySelectorAll('[data-ticket-folder]').forEach(b=>b.onclick=()=>{requestFolder=b.dataset.ticketFolder;renderDashboard()});
+  const input=document.getElementById('ticket-search');
+  if(input)input.oninput=()=>{const pos=input.selectionStart;ticketQuery=input.value;renderDashboard();const next=document.getElementById('ticket-search');next?.focus();next?.setSelectionRange(pos,pos)};
+}
+async function confirmTicket(id){
+  if(!confirm('Is het probleem opgelost? Het ticket en gesprek gaan naar het archief.'))return;
+  try{await request('/rest/v1/rpc/customer_confirm_support_request',{method:'POST',body:JSON.stringify({p_request_id:id})});await loadSupportRequests();renderDashboard()}
+  catch(e){error='Bevestigen mislukt: '+String(e?.message||e);renderDashboard()}
+}
 function requestsPanel(){
-  const open=supportRequests.filter(r=>r.status!=="resolved");
-  return `<section class="panel"><div class="panel-head"><div><h2>Verzoeken</h2><p>${open.length} openstaand · ${supportRequests.length} totaal</p></div></div><div class="request-list manager-requests">${supportRequests.length?supportRequests.map(r=>managerRequestCard(r,true)).join(""):'<div class="empty">Er zijn nog geen klantverzoeken.</div>'}</div></section>`;
+  const rows=filterTickets(supportRequests);
+  return `<section class="panel"><div class="panel-head"><div><h2>Verzoeken</h2><p>Openstaande tickets en door klanten bevestigde oplossingen.</p></div></div>${ticketFolderBar(supportRequests)}<div class="request-list manager-requests">${rows.length?rows.map(r=>managerRequestCard(r,true)).join(''):'<div class="empty">Geen tickets gevonden.</div>'}</div></section>`;
 }
 function customerRequestPanel(c){
-  const rows=supportRequests.filter(r=>r.organization_id===c.id);
-  return `<section class="panel requests-section"><div class="panel-head"><div><h2>Verzoeken van ${esc(c.name)}</h2><p>${rows.filter(r=>r.status!=="resolved").length} openstaand · ${rows.length} totaal</p></div></div>${rows.length?`<div class="request-list manager-requests">${rows.map(r=>managerRequestCard(r,false)).join("")}</div>`:'<div class="empty">Deze klant heeft nog geen verzoeken ingediend.</div>'}</section>`;
+  const all=supportRequests.filter(r=>r.organization_id===c.id),rows=filterTickets(all);
+  return `<section class="panel requests-section"><div class="panel-head"><h2>Verzoeken van ${esc(c.name)}</h2></div>${ticketFolderBar(all)}<div class="request-list manager-requests">${rows.length?rows.map(r=>managerRequestCard(r,false)).join(''):'<div class="empty">Geen tickets gevonden.</div>'}</div></section>`;
 }
-function renderManagerReplyModal(id){
+function renderManagerReplyModal(id,resolve=false){
   const r=supportRequests.find(item=>item.id===id);
-  if(!r)return;
+  if(!r||r.archived_at)return;
   const customer=customers.find(c=>c.id===r.organization_id);
-  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal reply-modal" id="reply-form"><div class="modal-title"><div><p class="eyebrow">ANTWOORD AAN ${esc(customer?.name||"KLANT")}</p><h2>${esc(r.subject)}</h2></div><button type="button" id="close">×</button></div><div class="modal-thread">${requestThreadHtml(r)}</div><label>Jouw reactie<textarea id="reply-message" minlength="1" maxlength="4000" rows="5" required autofocus></textarea></label><label>Status na verzenden<select id="reply-status"><option value="in_progress" ${r.status==="in_progress"?"selected":""}>In behandeling</option><option value="waiting_customer" ${r.status==="waiting_customer"?"selected":""}>Wacht op klant</option><option value="resolved" ${r.status==="resolved"?"selected":""}>Afgerond</option><option value="new" ${r.status==="new"?"selected":""}>Nieuw</option></select></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="reply-submit">Reactie versturen</button></div></form></div>`;
+  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal reply-modal" id="reply-form"><div class="modal-title"><div><p class="eyebrow">ANTWOORD AAN ${esc(customer?.name||"KLANT")}</p><h2>${esc(r.ticket_number||"—")} · ${esc(r.subject)}</h2></div><button type="button" id="close">×</button></div><div class="modal-thread">${requestThreadHtml(r)}</div><label>Jouw reactie<textarea id="reply-message" minlength="1" maxlength="4000" rows="5" required autofocus></textarea></label><label>Status na verzenden<select id="reply-status"><option value="in_progress" ${r.status==="in_progress"?"selected":""}>In behandeling</option><option value="waiting_customer" ${r.status==="waiting_customer"?"selected":""}>Wacht op klant</option><option value="resolved" ${r.status==="resolved"?"selected":""}>Afgerond</option><option value="new" ${r.status==="new"?"selected":""}>Nieuw</option></select></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="reply-submit">Reactie versturen</button></div></form></div>`;
   const close=()=>document.getElementById("modal-root").innerHTML="";
   document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};
   document.getElementById("reply-form").onsubmit=e=>sendManagerReply(e,id);
+  if(resolve)document.getElementById("reply-status").value="resolved";
+  document.getElementById("reply-message").placeholder="Beschrijf je reactie of de uitgevoerde oplossing.";
   document.getElementById("reply-message").focus();
 }
 async function sendManagerReply(event,id){
@@ -360,6 +391,7 @@ async function sendManagerReply(event,id){
   }
 }
 async function updateRequestStatus(id,status){
+  if(status==="resolved"){renderManagerReplyModal(id,true);return}
   try{
     await request("/rest/v1/rpc/manager_update_support_request",{method:"POST",body:JSON.stringify({p_request_id:id,p_status:status,p_manager_note:null})});
     await loadSupportRequests();renderDashboard();
@@ -380,11 +412,17 @@ async function createSupportRequest(event){
 }
 
 function customersPanel(shown){return `<section class="panel"><div class="panel-head"><div><h2>Klanten</h2><p>Licenties, looptijd en gebruik.</p></div><label class="search">⌕<input id="search" value="${esc(query)}" placeholder="Zoek klant"></label></div><div class="table-wrap"><table><thead><tr><th>Klant</th><th>Status</th><th>Players</th><th>Geldig tot</th><th></th></tr></thead><tbody>${shown.length?shown.map(rowHtml).join(""):'<tr><td colspan="5" class="empty">Nog geen klanten. Maak je eerste klant aan.</td></tr>'}</tbody></table></div></section>`}
+function playerUpdateLabel(p){
+  if(!/^\d+\.\d+\.\d+$/.test(p.version)||!/^\d+\.\d+\.\d+$/.test(p.latestVersion))return 'Nog niet vastgesteld';
+  const current=p.version.split('.').map(Number),latest=p.latestVersion.split('.').map(Number);
+  for(let i=0;i<3;i++){if(latest[i]>current[i])return 'Beschikbaar: '+p.latestVersion;if(latest[i]<current[i])return 'Up-to-date'}
+  return 'Up-to-date';
+}
 function customerDetailPanel(c){
   if(!c)return '<section class="panel"><div class="empty">Klant niet gevonden.</div></section>';
   const customerPlayers=players.filter(p=>p.organizationId===c.id);
   const address=[[`${c.street} ${c.houseNumber}`.trim(),`${c.postalCode} ${c.city}`.trim(),c.country].filter(Boolean).join(", ")][0]||"Nog niet ingevuld";
-  return `<div class="customer-detail"><section class="detail-grid"><article class="detail-card"><p class="eyebrow">KLANTGEGEVENS</p><div class="card-title-action"><h2>${esc(c.name)}</h2><button class="small-action" id="edit-customer">Bewerken</button></div><dl><dt>Klantnummer</dt><dd class="code-value">${esc(c.customerNumber||"Wordt gegenereerd")}</dd><dt>Contactpersoon</dt><dd>${esc(c.contactName||"—")}</dd><dt>E-mailadres</dt><dd>${esc(c.email||"—")}</dd><dt>Adres</dt><dd>${esc(address)}</dd></dl></article><article class="detail-card"><p class="eyebrow">LICENTIE</p><h2>${c.playerLimit} player${c.playerLimit===1?"":"s"}</h2><dl><dt>Status</dt><dd><span class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</span></dd><dt>In gebruik</dt><dd>${c.playersUsed} van ${c.playerLimit}</dd><dt>Geldig tot</dt><dd>${fmt(c.expiresAt)}</dd></dl></article><article class="detail-card account-card"><p class="eyebrow">ADMINACCOUNT</p><h2>${esc(c.email||"Nog geen e-mail")}</h2><p>Het definitieve wachtwoord is beveiligd door Supabase en kan nooit in ScreenFlow Admin worden bekeken.</p><button class="primary" id="customer-admin-access" ${c.email?"":"disabled"}>Eenmalige toegang maken</button><small>Bij een bestaand account wordt het tijdelijke wachtwoord vervangen.</small></article></section><section class="panel"><div class="panel-head"><div><h2>Players van ${esc(c.name)}</h2><p>${customerPlayers.length} gekoppeld · ${customerPlayers.filter(online).length} online</p></div></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Versie</th><th>Laatste contact</th></tr></thead><tbody>${customerPlayers.length?customerPlayers.map(p=>`<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}</small></div></div></td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span></td><td>${esc(p.version)}</td><td>${fmt(p.lastSeen)}</td></tr>`).join(""):'<tr><td colspan="4" class="empty">Deze klant heeft nog geen gekoppelde players.</td></tr>'}</tbody></table></div></section>${customerRequestPanel(c)}</div>`;
+  return `<div class="customer-detail"><section class="detail-grid"><article class="detail-card"><p class="eyebrow">KLANTGEGEVENS</p><div class="card-title-action"><h2>${esc(c.name)}</h2><button class="small-action" id="edit-customer">Bewerken</button></div><dl><dt>Klantnummer</dt><dd class="code-value">${esc(c.customerNumber||"Wordt gegenereerd")}</dd><dt>Contactpersoon</dt><dd>${esc(c.contactName||"—")}</dd><dt>E-mailadres</dt><dd>${esc(c.email||"—")}</dd><dt>Adres</dt><dd>${esc(address)}</dd></dl></article><article class="detail-card"><p class="eyebrow">LICENTIE</p><h2>${c.playerLimit} player${c.playerLimit===1?"":"s"}</h2><dl><dt>Status</dt><dd><span class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</span></dd><dt>In gebruik</dt><dd>${c.playersUsed} van ${c.playerLimit}</dd><dt>Geldig tot</dt><dd>${fmt(c.expiresAt)}</dd></dl></article><article class="detail-card account-card"><p class="eyebrow">ADMINACCOUNT</p><h2>${esc(c.email||"Nog geen e-mail")}</h2><p>Het definitieve wachtwoord is beveiligd door Supabase en kan nooit in ScreenFlow Admin worden bekeken.</p><button class="primary" id="customer-admin-access" ${c.email?"":"disabled"}>Eenmalige toegang maken</button><small>Bij een bestaand account wordt het tijdelijke wachtwoord vervangen.</small></article></section><section class="panel"><div class="panel-head"><div><h2>Players van ${esc(c.name)}</h2><p>${customerPlayers.length} gekoppeld · ${customerPlayers.filter(online).length} online · ${customerPlayers.filter(p=>!online(p)).length} offline</p></div></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Appversie</th><th>Firmware</th><th>App-update</th><th>Laatste contact</th></tr></thead><tbody>${customerPlayers.length?customerPlayers.map(p=>`<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}</small></div></div></td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span></td><td>${esc(p.version)}</td><td>${esc(p.firmware)}</td><td>${esc(playerUpdateLabel(p))}</td><td>${fmt(p.lastSeen)}</td></tr>`).join(""):'<tr><td colspan="6" class="empty">Deze klant heeft nog geen gekoppelde players.</td></tr>'}</tbody></table></div></section>${customerRequestPanel(c)}</div>`;
 }
 function renderEditCustomerModal(c){
   document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="edit-customer-form"><div class="modal-title"><div><p class="eyebrow">${esc(c.customerNumber)}</p><h2>Klantgegevens bewerken</h2></div><button type="button" id="close">×</button></div><label>Bedrijfsnaam<input id="edit-company" required value="${esc(c.name)}"></label><div class="form-row"><label>Contactpersoon<input id="edit-contact" value="${esc(c.contactName)}"></label><label>E-mailadres<input id="edit-email" type="email" value="${esc(c.email)}"></label></div><div class="form-row"><label>Straat<input id="edit-street" value="${esc(c.street)}"></label><label>Huisnummer<input id="edit-house" value="${esc(c.houseNumber)}"></label></div><div class="form-row"><label>Postcode<input id="edit-postal" value="${esc(c.postalCode)}"></label><label>Plaats<input id="edit-city" value="${esc(c.city)}"></label></div><label>Land<input id="edit-country" value="${esc(c.country)}"></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="save-customer">Opslaan</button></div></form></div>`;
@@ -474,3 +512,4 @@ async function createCustomer(event) {
 
 async function start() { if(!session){renderLogin();return} await bootAuthenticated(); }
 start();
+

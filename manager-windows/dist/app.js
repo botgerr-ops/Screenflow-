@@ -94,6 +94,18 @@ async function loadPlayers() {
 function online(p){return p.lastSeen&&Date.now()-new Date(p.lastSeen).getTime()<90000}
 
 function fmt(date) { if(!date)return "Nog nooit"; try { const value=String(date).includes("T")?date:date+"T12:00:00"; return new Intl.DateTimeFormat("nl-NL",{day:"numeric",month:"short",year:"numeric",hour:String(date).includes("T")?"2-digit":undefined,minute:String(date).includes("T")?"2-digit":undefined}).format(new Date(value)); } catch { return date; } }
+function dateForInput(date) {
+  const match=String(date||"").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : "";
+}
+function dateToIso(value) {
+  const match=String(value||"").trim().match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/);
+  if(!match) return null;
+  const day=Number(match[1]), month=Number(match[2]), year=Number(match[3]);
+  const date=new Date(Date.UTC(year,month-1,day));
+  if(date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day) return null;
+  return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+}
 
 function nav(page,icon,label){return `<button data-page="${page}" class="${activePage===page?"active":""}">${icon} ${label}</button>`}
 function renderDashboard() {
@@ -109,7 +121,9 @@ function renderDashboard() {
   document.getElementById("pair-player")?.addEventListener("click",renderPairModal);
   const search=document.getElementById("search"); if(search) search.oninput=e=>{query=e.target.value;renderDashboard();document.getElementById("search")?.focus()};
   document.querySelectorAll("[data-status]").forEach(b=>b.onclick=()=>updateLicense(b.dataset.id,{status:b.dataset.status==="active"?"blocked":"active"}));
-  document.querySelectorAll("[data-extend]").forEach(b=>b.onclick=()=>{const c=customers.find(x=>x.licenseId===b.dataset.extend);const base=Math.max(Date.now(),new Date(c.expiresAt).getTime());updateLicense(c.licenseId,{valid_until:new Date(base+365*86400000).toISOString().slice(0,10)})});
+  document.querySelectorAll("[data-save-date]").forEach(b=>b.onclick=()=>saveLicenseDate(b.dataset.saveDate));
+  document.querySelectorAll("[data-date-input]").forEach(input=>input.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();saveLicenseDate(input.dataset.dateInput)}});
+  document.querySelectorAll("[data-extend]").forEach(b=>b.onclick=()=>{const c=customers.find(x=>x.licenseId===b.dataset.extend);const base=Math.max(Date.now(),new Date(c.expiresAt+"T12:00:00").getTime());updateLicense(c.licenseId,{valid_until:new Date(base+365*86400000).toISOString().slice(0,10)})});
   document.querySelectorAll("[data-command]").forEach(b=>b.onclick=()=>sendCommand(b.dataset.player,b.dataset.command));
 }
 function customersPanel(shown){return `<section class="panel"><div class="panel-head"><div><h2>Klanten</h2><p>Licenties, looptijd en gebruik.</p></div><label class="search">⌕<input id="search" value="${esc(query)}" placeholder="Zoek klant"></label></div><div class="table-wrap"><table><thead><tr><th>Klant</th><th>Status</th><th>Players</th><th>Geldig tot</th><th></th></tr></thead><tbody>${shown.length?shown.map(rowHtml).join(""):'<tr><td colspan="5" class="empty">Nog geen klanten. Maak je eerste klant aan.</td></tr>'}</tbody></table></div></section>`}
@@ -122,11 +136,22 @@ function playerRow(p){
   return `<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}${p.code?` · code ${esc(p.code)}`:""}</small></div></div></td><td>${customer?esc(customer.name):'<span class="muted">Niet gekoppeld</span>'}</td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span><small class="last-seen">${fmt(p.lastSeen)}</small></td><td>${esc(p.version)}</td><td><div class="actions"><button class="small-action" data-player="${esc(p.id)}" data-command="sync">Synchroniseer</button><button class="small-action" data-player="${esc(p.id)}" data-command="update">Update app</button>${p.pendingCommand?`<small class="pending">Wacht op: ${esc(p.pendingCommand)}</small>`:""}</div></td></tr>`;
 }
 
-function rowHtml(c) { const pct=c.playerLimit?Math.min(100,c.playersUsed/c.playerLimit*100):0;return `<tr><td><div class="customer"><span>${esc(c.name.slice(0,2).toUpperCase())}</span><div><strong>${esc(c.name)}</strong><small>${esc(c.contactName)} · ${esc(c.email)}</small></div></div></td><td><button data-status="${esc(c.status)}" data-id="${esc(c.licenseId)}" class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</button></td><td><strong>${c.playersUsed} / ${c.playerLimit}</strong><div class="meter"><i style="width:${pct}%"></i></div></td><td><span class="date">▣ ${fmt(c.expiresAt)}</span></td><td><button class="small-action" data-extend="${esc(c.licenseId)}">+1 jaar</button></td></tr>`; }
+function rowHtml(c) { const pct=c.playerLimit?Math.min(100,c.playersUsed/c.playerLimit*100):0;return `<tr><td><div class="customer"><span>${esc(c.name.slice(0,2).toUpperCase())}</span><div><strong>${esc(c.name)}</strong><small>${esc(c.contactName)} · ${esc(c.email)}</small></div></div></td><td><button data-status="${esc(c.status)}" data-id="${esc(c.licenseId)}" class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</button></td><td><strong>${c.playersUsed} / ${c.playerLimit}</strong><div class="meter"><i style="width:${pct}%"></i></div></td><td><div class="date-editor"><input class="license-date" data-date-input="${esc(c.licenseId)}" value="${esc(dateForInput(c.expiresAt))}" placeholder="dd-mm-jjjj" maxlength="10" inputmode="numeric" aria-label="Geldig tot"><button class="small-action" data-save-date="${esc(c.licenseId)}">Opslaan</button></div></td><td><button class="small-action" data-extend="${esc(c.licenseId)}">+1 jaar</button></td></tr>`; }
+async function saveLicenseDate(id) {
+  const input=document.querySelector(`[data-date-input="${id}"]`);
+  const iso=dateToIso(input?.value);
+  if(!iso) {
+    error="Vul de datum in als dd-mm-jjjj, bijvoorbeeld 31-12-2027.";
+    renderDashboard();
+    document.querySelector(`[data-date-input="${id}"]`)?.focus();
+    return;
+  }
+  await updateLicense(id,{valid_until:iso});
+}
 async function updateLicense(id, values) { try {await request("/rest/v1/rpc/manager_update_license",{method:"POST",body:JSON.stringify({p_license_id:id,p_status:values.status||null,p_valid_until:values.valid_until||null})});await loadCustomers();renderDashboard()}catch(e){error=typeof e==="string"?e:(e?.message||String(e));renderDashboard()} }
 function renderModal() {
-  const date=new Date(Date.now()+365*86400000).toISOString().slice(0,10);
-  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="customer-form"><div class="modal-title"><div><p class="eyebrow">NIEUWE LICENTIE</p><h2>Klant toevoegen</h2></div><button type="button" id="close">×</button></div><label>Bedrijfsnaam<input id="company" required></label><div class="form-row"><label>Contactpersoon<input id="contact" required></label><label>E-mailadres<input id="customer-email" required type="email"></label></div><div class="form-row"><label>Aantal players<input id="limit" required min="1" max="999" type="number" value="5"></label><label>Geldig tot<input id="expires" required type="date" value="${date}"></label></div><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="create-button">Klant aanmaken</button></div></form></div>`;
+  const date=dateForInput(new Date(Date.now()+365*86400000).toISOString().slice(0,10));
+  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="customer-form"><div class="modal-title"><div><p class="eyebrow">NIEUWE LICENTIE</p><h2>Klant toevoegen</h2></div><button type="button" id="close">×</button></div><label>Bedrijfsnaam<input id="company" required></label><div class="form-row"><label>Contactpersoon<input id="contact" required></label><label>E-mailadres<input id="customer-email" required type="email"></label></div><div class="form-row"><label>Aantal players<input id="limit" required min="1" max="999" type="number" value="5"></label><label>Geldig tot<input id="expires" required type="text" inputmode="numeric" maxlength="10" placeholder="dd-mm-jjjj" value="${date}"></label></div><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="create-button">Klant aanmaken</button></div></form></div>`;
   const close=()=>document.getElementById("modal-root").innerHTML=""; document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};document.getElementById("customer-form").onsubmit=createCustomer;
 }
 async function createCustomer(event) {
@@ -135,6 +160,8 @@ async function createCustomer(event) {
   button.disabled=true;
   button.textContent="Aanmaken…";
   try {
+    const validUntil=dateToIso(document.getElementById("expires").value);
+    if(!validUntil) throw new Error("Vul Geldig tot in als dd-mm-jjjj, bijvoorbeeld 31-12-2027.");
     await request("/rest/v1/rpc/manager_create_customer",{
       method:"POST",
       body:JSON.stringify({
@@ -142,7 +169,7 @@ async function createCustomer(event) {
         p_contact_name:document.getElementById("contact").value,
         p_contact_email:document.getElementById("customer-email").value,
         p_player_limit:Number(document.getElementById("limit").value),
-        p_valid_until:document.getElementById("expires").value
+        p_valid_until:validUntil
       })
     });
     document.getElementById("modal-root").innerHTML="";

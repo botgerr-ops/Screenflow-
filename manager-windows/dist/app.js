@@ -25,15 +25,28 @@ function apiHeaders(json=false) {
   if (json) h["Content-Type"] = "application/json";
   return h;
 }
-async function request(path, options={}) {
-  let response = await fetch(SUPABASE_URL + path, {...options, headers:{...apiHeaders(Boolean(options.body)), ...(options.headers||{})}});
-  if (response.status === 401 && session?.refresh_token) {
-    const refreshed = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {method:"POST",headers:{apikey:SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({refresh_token:session.refresh_token})});
-    if (refreshed.ok) { saveSession(await refreshed.json()); response = await fetch(SUPABASE_URL + path, {...options, headers:{...apiHeaders(Boolean(options.body)), ...(options.headers||{})}}); }
+async function nativeRequest(path, options={}) {
+  const method=options.method||"GET";
+  const body=options.body ? JSON.parse(options.body) : null;
+  const prefer=options.headers?.Prefer||null;
+  if(window.__TAURI__?.core?.invoke) {
+    return window.__TAURI__.core.invoke("supabase_request",{method,path,body,token:session?.access_token||null,prefer});
   }
-  if (!response.ok) { const body = await response.json().catch(()=>({})); throw new Error(body.message || body.error_description || body.hint || `Fout ${response.status}`); }
-  if (response.status === 204) return null;
-  return response.json();
+  const response=await fetch(SUPABASE_URL+path,{...options,headers:{...apiHeaders(Boolean(options.body)),...(options.headers||{})}});
+  const data=await response.json().catch(()=>null);
+  if(!response.ok) throw new Error(data?.message||data?.error_description||`Fout ${response.status}`);
+  return data;
+}
+async function request(path, options={}) {
+  try { return await nativeRequest(path,options); }
+  catch(e) {
+    if(session?.refresh_token && /401|jwt|token|unauthorized/i.test(String(e))) {
+      const old=session; session=null;
+      const refreshed=await nativeRequest("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:old.refresh_token})});
+      saveSession(refreshed); return nativeRequest(path,options);
+    }
+    throw e;
+  }
 }
 
 function renderLogin() {
@@ -44,8 +57,7 @@ async function login(event) {
   event.preventDefault(); error="";
   const button=document.getElementById("login-button"); button.disabled=true; button.textContent="Inloggen…";
   try {
-    const response=await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`,{method:"POST",headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`,"Content-Type":"application/json"},body:JSON.stringify({email:document.getElementById("email").value.trim(),password:document.getElementById("password").value})});
-    const data=await response.json(); if(!response.ok) throw new Error(data.error_description || data.message || "Inloggen mislukt");
+    const data=await nativeRequest("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email:document.getElementById("email").value.trim(),password:document.getElementById("password").value})});
     saveSession(data); await loadCustomers(); renderDashboard();
   } catch(e) {
     const message=String(e?.message||"");

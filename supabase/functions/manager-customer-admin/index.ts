@@ -45,7 +45,17 @@ Deno.serve(async (req) => {
     if (listError) throw listError;
     let user = listed.users.find((candidate) => candidate.email?.toLowerCase() === email);
     let created = false;
+    let membership = null;
     if (user) {
+      const { data: existingProfile } = await admin.from("profiles").select("role").eq("user_id", user.id).maybeSingle();
+      if (existingProfile?.role === "manager" || user.app_metadata?.role === "manager") {
+        return json({ message: "Dit e-mailadres hoort bij een Manager-account. Gebruik een ander klantadres." }, 409);
+      }
+      const membershipResult = await admin.from("organization_members").select("organization_id").eq("user_id", user.id).maybeSingle();
+      membership = membershipResult.data;
+      if (membership && membership.organization_id !== organizationId) {
+        return json({ message: "Dit e-mailadres hoort al bij een andere klant" }, 409);
+      }
       const { data, error } = await admin.auth.admin.updateUserById(user.id, {
         password: temporaryPassword, email_confirm: true,
         user_metadata: { ...user.user_metadata, full_name: fullName },
@@ -62,12 +72,6 @@ Deno.serve(async (req) => {
       if (error) throw error;
       user = data.user;
       created = true;
-    }
-
-    const { data: membership } = await admin.from("organization_members").select("organization_id").eq("user_id", user.id).maybeSingle();
-    if (membership && membership.organization_id !== organizationId) {
-      if (created) await admin.auth.admin.deleteUser(user.id);
-      return json({ message: "Dit e-mailadres hoort al bij een andere klant" }, 409);
     }
     if (!membership) {
       const { error } = await admin.from("organization_members").insert({ organization_id: organizationId, user_id: user.id });

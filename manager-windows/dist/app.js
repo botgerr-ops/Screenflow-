@@ -11,6 +11,7 @@ let error = "";
 let query = "";
 let activePage = "overview";
 let selectedCustomerId = "";
+let customerPage = "overview";
 let identity = null;
 
 function loadSession() {
@@ -209,18 +210,38 @@ function renderDashboard() {
   document.querySelectorAll("[data-extend]").forEach(b=>b.onclick=()=>{const c=customers.find(x=>x.licenseId===b.dataset.extend);const base=Math.max(Date.now(),new Date(c.expiresAt+"T12:00:00").getTime());updateLicense(c.licenseId,{valid_until:new Date(base+365*86400000).toISOString().slice(0,10)})});
   document.querySelectorAll("[data-command]").forEach(b=>b.onclick=()=>sendCommand(b.dataset.player,b.dataset.command));
 }
+function customerNav(page,icon,label){
+  return `<button data-customer-page="${page}" class="${customerPage===page?"active":""}">${icon} ${label}</button>`;
+}
+function customerOverviewPanel(customer,ownPlayers,active){
+  const address=[`${customer?.street||""} ${customer?.houseNumber||""}`.trim(),`${customer?.postalCode||""} ${customer?.city||""}`.trim(),customer?.country].filter(Boolean).join(", ")||"Nog niet ingevuld";
+  const allowed=customer?.playerLimit||0,used=ownPlayers.length;
+  return `<div class="customer-page"><div class="stats customer-stats"><article class="${active?"lime-card":""}"><span class="stat-icon">▣</span><div><small>Licentie</small><strong class="compact-stat">${active?"Actief":"Niet actief"}</strong><em>Geldig tot ${fmt(customer?.expiresAt)}</em></div></article><article><span class="stat-icon">▰</span><div><small>Toegestane players</small><strong>${allowed}</strong><em>Volgens de huidige licentie</em></div></article><article><span class="stat-icon">●</span><div><small>Licenties in gebruik</small><strong>${used}</strong><em>${Math.max(0,allowed-used)} beschikbaar</em></div></article></div><section class="panel"><div class="panel-head"><div><h2>Bedrijfsgegevens</h2><p>De gegevens die bij jouw ScreenFlow-account horen.</p></div></div><div class="customer-info-grid"><div><small>Klantnummer</small><strong>${esc(customer?.customerNumber||"—")}</strong></div><div><small>Bedrijfsnaam</small><strong>${esc(customer?.name||"—")}</strong></div><div><small>Contactpersoon</small><strong>${esc(customer?.contactName||"—")}</strong></div><div><small>E-mailadres</small><strong>${esc(customer?.email||"—")}</strong></div><div class="wide"><small>Bedrijfsadres</small><strong>${esc(address)}</strong></div></div></section></div>`;
+}
+function customerPlayersPage(customer,ownPlayers,active){
+  return `<section class="panel"><div class="panel-head"><div><h2>Players</h2><p>${ownPlayers.length} van ${customer?.playerLimit||0} licenties in gebruik · ${ownPlayers.filter(online).length} online</p></div><button class="primary" id="customer-pair-player" ${!active||ownPlayers.length>=(customer?.playerLimit||0)?"disabled":""}>＋ Player koppelen</button></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Versie</th><th>Laatste contact</th></tr></thead><tbody>${ownPlayers.length?ownPlayers.map(p=>`<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}</small></div></div></td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span></td><td>${esc(p.version)}</td><td>${fmt(p.lastSeen)}</td></tr>`).join(""):'<tr><td colspan="4" class="empty">Nog geen players gekoppeld. De echte koppelprocedure volgt met de Android-testplayer.</td></tr>'}</tbody></table></div></section>`;
+}
+function customerComingSoonPage(kind){
+  const media=kind==="media";
+  return `<section class="panel coming-soon"><span class="coming-icon">${media?"▧":"≡"}</span><p class="eyebrow">${media?"MEDIA":"PLANNING"}</p><h2>${media?"Mediabibliotheek":"Contentplanning"}</h2><p>${media?"Hier komen afbeeldingen en video's die je naar players kunt sturen.":"Hier maak je straks per dag en tijdstip een afspeelschema."}</p><span class="status in_progress">Wordt opgebouwd</span></section>`;
+}
+function customerRequestsPage(ownRequests){
+  return `<section class="panel"><div class="panel-head"><div><h2>Mijn verzoeken</h2><p>Stuur een vraag of probleem rechtstreeks naar ScreenFlow.</p></div><button class="primary" id="new-request">＋ Nieuw verzoek</button></div>${customerRequestsHtml(ownRequests)}</section>`;
+}
 function renderCustomerDashboard(){
   const customer=customers[0];
   const ownPlayers=players.filter(p=>p.organizationId===identity.organizationId);
   const ownRequests=supportRequests.filter(r=>r.organization_id===identity.organizationId);
   const active=customer?.status==="active"&&new Date((customer?.expiresAt||"1970-01-01")+"T23:59:59").getTime()>=Date.now();
   const title=customer?.name||"Mijn organisatie";
-  app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav><button class="active">▦ Overzicht</button><button id="customer-players">▰ Players</button><button disabled>▧ Media <small>Binnenkort</small></button><button disabled>≡ Planning <small>Binnenkort</small></button><button id="customer-requests">✉ Verzoeken</button></nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN</p><h1>${greeting()}, ${esc(identity.name)}.</h1><p>Beheer de narrowcasting van ${esc(title)} · ${esc(customer?.customerNumber||"")}</p></div></header><div class="stats customer-stats"><article class="${active?"lime-card":""}"><span class="stat-icon">▣</span><div><small>Licentie</small><strong class="compact-stat">${active?"Actief":"Niet actief"}</strong><em>Geldig tot ${fmt(customer?.expiresAt)}</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${ownPlayers.length} / ${customer?.playerLimit||0}</strong><em>${ownPlayers.filter(online).length} online</em></div></article><article><span class="stat-icon">✉</span><div><small>Lopende verzoeken</small><strong>${ownRequests.filter(r=>r.status!=="resolved").length}</strong><em>${ownRequests.length} totaal</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}<section class="panel" id="players-section"><div class="panel-head"><div><h2>Players van ${esc(title)}</h2><p>Alleen de players van jouw organisatie zijn zichtbaar.</p></div><button class="primary" id="customer-pair-player" ${!active||ownPlayers.length>=(customer?.playerLimit||0)?"disabled":""}>＋ Player koppelen</button></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Status</th><th>Versie</th><th>Laatste contact</th></tr></thead><tbody>${ownPlayers.length?ownPlayers.map(p=>`<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}</small></div></div></td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span></td><td>${esc(p.version)}</td><td>${fmt(p.lastSeen)}</td></tr>`).join(""):'<tr><td colspan="4" class="empty">Nog geen players gekoppeld. De echte koppelprocedure volgt met de Android-testplayer.</td></tr>'}</tbody></table></div></section><section class="panel requests-section" id="requests-section"><div class="panel-head"><div><h2>Mijn verzoeken</h2><p>Stuur een vraag of probleem rechtstreeks naar ScreenFlow.</p></div><button class="primary" id="new-request">＋ Nieuw verzoek</button></div>${customerRequestsHtml(ownRequests)}</section></section></main><div id="modal-root"></div>`;
-  document.getElementById("logout").onclick=()=>{saveSession(null);identity=null;customers=[];players=[];supportRequests=[];renderLogin()};
+  const pageTitle=({overview:"Overzicht",players:"Players",media:"Media",planning:"Planning",requests:"Verzoeken"})[customerPage]||"Overzicht";
+  const heading=customerPage==="overview"?`${greeting()}, ${esc(identity.name)}.`:esc(pageTitle);
+  const content=customerPage==="players"?customerPlayersPage(customer,ownPlayers,active):customerPage==="media"?customerComingSoonPage("media"):customerPage==="planning"?customerComingSoonPage("planning"):customerPage==="requests"?customerRequestsPage(ownRequests):customerOverviewPanel(customer,ownPlayers,active);
+  app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${customerNav("overview","▦","Overzicht")}${customerNav("players","▰","Players")}${customerNav("media","▧","Media")}${customerNav("planning","≡","Planning")}${customerNav("requests","✉","Verzoeken")}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN · ${esc(pageTitle.toUpperCase())}</p><h1>${heading}</h1><p>${esc(title)} · ${esc(customer?.customerNumber||"")}</p></div></header>${error?`<p class="error-banner customer-error">${esc(error)}</p>`:""}${content}</section></main><div id="modal-root"></div>`;
+  document.getElementById("logout").onclick=()=>{saveSession(null);identity=null;customerPage="overview";customers=[];players=[];supportRequests=[];renderLogin()};
+  document.querySelectorAll("[data-customer-page]").forEach(button=>button.onclick=()=>{customerPage=button.dataset.customerPage;error="";renderCustomerDashboard()});
   document.getElementById("customer-pair-player")?.addEventListener("click",()=>{error="Playerkoppeling wordt aangesloten zodra de Android-testplayer beschikbaar is.";renderCustomerDashboard()});
-  document.getElementById("customer-players").onclick=()=>document.getElementById("players-section").scrollIntoView({behavior:"smooth"});
-  document.getElementById("customer-requests").onclick=()=>document.getElementById("requests-section").scrollIntoView({behavior:"smooth"});
-  document.getElementById("new-request").onclick=renderNewRequestModal;
+  document.getElementById("new-request")?.addEventListener("click",renderNewRequestModal);
 }
 
 function customerRequestsHtml(rows){

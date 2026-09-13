@@ -54,9 +54,6 @@ Deno.serve(async (req) => {
     const email = String(body.email || "").trim().toLowerCase();
     const fullName = String(body.full_name || "").trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !organizationId) return json({ message: "Controleer klant en e-mailadres" }, 400);
-    const { data: organization } = await admin.from("organizations").select("id").eq("id", organizationId).single();
-    if (!organization) return json({ message: "Klant niet gevonden" }, 404);
-
     const temporaryPassword = randomPassword();
     const { data: listed, error: listError } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
     if (listError) throw listError;

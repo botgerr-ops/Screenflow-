@@ -60,7 +60,7 @@ async function login(event) {
     const data=await nativeRequest("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email:document.getElementById("email").value.trim(),password:document.getElementById("password").value})});
     saveSession(data); await loadCustomers(); renderDashboard();
   } catch(e) {
-    const message=String(e?.message||"");
+    const message=typeof e==="string" ? e : String(e?.message||e||"Onbekende fout");
     if(/invalid login credentials/i.test(message)) error="E-mailadres of wachtwoord is niet juist.";
     else if(/email not confirmed/i.test(message)) error="Je e-mailadres is nog niet bevestigd in Supabase.";
     else if(/failed to fetch|network/i.test(message)) error="Geen verbinding met Supabase. Controleer internet of firewall.";
@@ -74,7 +74,7 @@ async function loadCustomers() {
     const rows=await request(`/rest/v1/organizations?select=${select}&order=created_at.desc`);
     customers=(rows||[]).map(o=>{const l=Array.isArray(o.licenses)?o.licenses[0]:o.licenses;return{id:o.id,licenseId:l?.id||"",name:o.name,contactName:o.contact_name||"",email:o.contact_email||"",status:l?.status||"blocked",playerLimit:l?.player_limit||0,playersUsed:o.devices?.length||0,expiresAt:l?.valid_until||new Date().toISOString().slice(0,10)}});
     error="";
-  } catch(e) { error="Kon de gegevens niet laden: "+e.message; customers=[]; }
+  } catch(e) { error="Kon de gegevens niet laden: "+(typeof e==="string"?e:(e?.message||e)); customers=[]; }
 }
 function fmt(date) { try { return new Intl.DateTimeFormat("nl-NL",{day:"numeric",month:"short",year:"numeric"}).format(new Date(date+"T12:00:00")); } catch { return date; } }
 function renderDashboard() {
@@ -88,7 +88,7 @@ function renderDashboard() {
   document.querySelectorAll("[data-extend]").forEach(b=>b.onclick=()=>{const c=customers.find(x=>x.licenseId===b.dataset.extend);const base=Math.max(Date.now(),new Date(c.expiresAt).getTime());updateLicense(c.licenseId,{valid_until:new Date(base+365*86400000).toISOString().slice(0,10)})});
 }
 function rowHtml(c) { const pct=c.playerLimit?Math.min(100,c.playersUsed/c.playerLimit*100):0;return `<tr><td><div class="customer"><span>${esc(c.name.slice(0,2).toUpperCase())}</span><div><strong>${esc(c.name)}</strong><small>${esc(c.contactName)} · ${esc(c.email)}</small></div></div></td><td><button data-status="${esc(c.status)}" data-id="${esc(c.licenseId)}" class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</button></td><td><strong>${c.playersUsed} / ${c.playerLimit}</strong><div class="meter"><i style="width:${pct}%"></i></div></td><td><span class="date">▣ ${fmt(c.expiresAt)}</span></td><td><button class="small-action" data-extend="${esc(c.licenseId)}">+1 jaar</button></td></tr>`; }
-async function updateLicense(id, values) { try {await request(`/rest/v1/licenses?id=eq.${encodeURIComponent(id)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(values)});await loadCustomers();renderDashboard()}catch(e){error=e.message;renderDashboard()} }
+async function updateLicense(id, values) { try {await request(`/rest/v1/licenses?id=eq.${encodeURIComponent(id)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(values)});await loadCustomers();renderDashboard()}catch(e){error=typeof e==="string"?e:(e?.message||String(e));renderDashboard()} }
 function renderModal() {
   const date=new Date(Date.now()+365*86400000).toISOString().slice(0,10);
   document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="customer-form"><div class="modal-title"><div><p class="eyebrow">NIEUWE LICENTIE</p><h2>Klant toevoegen</h2></div><button type="button" id="close">×</button></div><label>Bedrijfsnaam<input id="company" required></label><div class="form-row"><label>Contactpersoon<input id="contact" required></label><label>E-mailadres<input id="customer-email" required type="email"></label></div><div class="form-row"><label>Aantal players<input id="limit" required min="1" max="999" type="number" value="5"></label><label>Geldig tot<input id="expires" required type="date" value="${date}"></label></div><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="create-button">Klant aanmaken</button></div></form></div>`;
@@ -100,7 +100,7 @@ async function createCustomer(event) {
     const org=await request("/rest/v1/organizations",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({name:document.getElementById("company").value,contact_name:document.getElementById("contact").value,contact_email:document.getElementById("customer-email").value})});
     await request("/rest/v1/licenses",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({organization_id:org[0].id,status:"active",player_limit:Number(document.getElementById("limit").value),valid_until:document.getElementById("expires").value})});
     document.getElementById("modal-root").innerHTML="";await loadCustomers();renderDashboard();
-  } catch(e) {const p=document.getElementById("modal-error");p.textContent="Klant aanmaken mislukt: "+e.message;p.classList.remove("hidden");button.disabled=false;button.textContent="Klant aanmaken";}
+  } catch(e) {const p=document.getElementById("modal-error");p.textContent="Klant aanmaken mislukt: "+(typeof e==="string"?e:(e?.message||e));p.classList.remove("hidden");button.disabled=false;button.textContent="Klant aanmaken";}
 }
 
 async function start() { if(!session){renderLogin();return} await loadCustomers();renderDashboard(); }

@@ -116,3 +116,80 @@ $function$;
 
 revoke all on function public.manager_reply_to_request(uuid,text,text) from public;
 grant execute on function public.manager_reply_to_request(uuid,text,text) to authenticated;
+
+
+create or replace function public.customer_mark_requests_viewed()
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $function$
+declare
+  customer_organization_id uuid;
+begin
+  customer_organization_id := nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid;
+  if customer_organization_id is null then
+    raise exception 'Geen klantorganisatie gekoppeld';
+  end if;
+
+  update public.support_request_messages
+  set customer_viewed_at = coalesce(customer_viewed_at, now())
+  where organization_id = customer_organization_id
+    and sender_role = 'manager'
+    and customer_viewed_at is null;
+end;
+$function$;
+
+revoke all on function public.customer_mark_requests_viewed() from public;
+grant execute on function public.customer_mark_requests_viewed() to authenticated;
+
+create or replace function public.customer_reply_to_request(
+  p_request_id uuid,
+  p_message text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $function$
+declare
+  customer_organization_id uuid;
+  request_organization_id uuid;
+  new_message_id uuid;
+begin
+  customer_organization_id := nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid;
+  if customer_organization_id is null then
+    raise exception 'Geen klantorganisatie gekoppeld';
+  end if;
+  if nullif(btrim(p_message), '') is null then
+    raise exception 'Reactie ontbreekt';
+  end if;
+
+  select organization_id
+  into request_organization_id
+  from public.support_requests
+  where id = p_request_id;
+
+  if request_organization_id is null or request_organization_id <> customer_organization_id then
+    raise exception 'Verzoek niet gevonden';
+  end if;
+
+  insert into public.support_request_messages (
+    request_id, organization_id, sender_id, sender_role, message, customer_viewed_at
+  )
+  values (
+    p_request_id, customer_organization_id, auth.uid(), 'customer', btrim(p_message), now()
+  )
+  returning id into new_message_id;
+
+  update public.support_requests
+  set status = 'new',
+      updated_at = now()
+  where id = p_request_id;
+
+  return new_message_id;
+end;
+$function$;
+
+revoke all on function public.customer_reply_to_request(uuid,text) from public;
+grant execute on function public.customer_reply_to_request(uuid,text) to authenticated;

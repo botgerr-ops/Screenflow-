@@ -62,3 +62,51 @@ nav button{display:flex;align-items:center;justify-content:space-between;gap:10p
 .reply-modal{width:min(680px,100%)}
 .reply-modal select{width:100%}
 @media(max-width:720px){.request-controls{min-width:0}.request-controls .reply-button{width:auto}}
+
+
+.content-panel{margin-top:28px}
+.media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;padding:18px}
+.media-card{min-width:0;background:#111411;border:1px solid var(--line);border-radius:13px;overflow:hidden}
+.media-preview{aspect-ratio:16/10;background:#090b09;display:grid;place-items:center;overflow:hidden}
+.media-preview img,.media-preview video{width:100%;height:100%;object-fit:contain;background:#090b09}
+.media-placeholder{color:#687064;font-size:12px}
+.media-meta{padding:14px}
+.media-meta>strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.media-meta>small{display:block;color:var(--muted);font-size:11px;margin-top:5px}
+.media-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:13px}
+.small-action.danger{color:#ffaaa3;border-color:#5a302d}
+.large-media-preview{min-height:280px;max-height:65vh;background:#090b09;border-radius:12px;display:grid;place-items:center;overflow:hidden;margin-bottom:20px}
+.large-media-preview img,.large-media-preview video{display:block;max-width:100%;max-height:65vh}
+.media-modal{width:min(900px,calc(100vw - 36px))}
+.playlist-grid,.schedule-list{display:grid;gap:10px;padding:18px}
+.playlist-card,.schedule-card{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;background:#111411;border:1px solid var(--line);border-radius:12px;padding:15px}
+.playlist-card strong,.playlist-card small,.schedule-card strong,.schedule-card small,.schedule-card em{display:block}
+.playlist-card small,.schedule-card small{color:var(--muted);font-size:12px;margin-top:5px}
+.schedule-card em{color:#cbd1c8;font-size:13px;font-style:normal;margin-top:6px}
+.playlist-icon{width:38px;height:38px;border-radius:10px;background:#252a22;color:var(--lime);display:grid;place-items:center}
+.playlist-actions,.schedule-actions{display:flex;gap:7px}
+.schedule-state{border-radius:999px;padding:6px 9px;font-size:10px;font-weight:800;text-transform:uppercase}
+.schedule-state.active{background:#243521;color:#baf397}.schedule-state.blocked{background:#392322;color:#ffaaa3}
+.playlist-modal{width:min(820px,calc(100vw - 36px))}
+.playlist-add{display:grid;grid-template-columns:1fr 120px auto;gap:10px;align-items:end;margin-bottom:18px}
+.playlist-add select,.playlist-add input,.modal select{width:100%;background:#0f110f;border:1px solid #343934;border-radius:10px;color:white;padding:12px;outline:0}
+.playlist-add label{margin:0}
+.playlist-item-list{display:grid;gap:8px;max-height:430px;overflow:auto;margin-bottom:18px}
+.playlist-item{display:grid;grid-template-columns:30px 1fr 110px auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:10px;background:#111411}
+.playlist-item>span{width:26px;height:26px;border-radius:8px;background:#252a22;color:var(--lime);display:grid;place-items:center;font-size:11px;font-weight:800}
+.playlist-item strong,.playlist-item small{display:block}.playlist-item small{color:var(--muted);font-size:11px;margin-top:3px}
+.playlist-item label{display:flex;align-items:center;gap:5px;margin:0;color:var(--muted)}
+.playlist-item input{width:70px;padding:8px}
+.compact-empty{padding:28px}
+.weekday-field{border:0;padding:0;margin:0 0 18px}
+.weekday-field legend{color:#aeb4ab;font-size:13px;margin-bottom:9px}
+.weekday-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:7px}
+.weekday-grid label{margin:0;display:block;cursor:pointer}
+.weekday-grid input{position:absolute;opacity:0;pointer-events:none}
+.weekday-grid span{display:grid;place-items:center;height:40px;border:1px solid #343934;border-radius:9px;color:#9ca398;background:#0f110f}
+.weekday-grid input:checked+span{background:var(--lime);border-color:var(--lime);color:#111;font-weight:800}
+@media(max-width:720px){
+  .playlist-card,.schedule-card{grid-template-columns:auto 1fr}.playlist-actions,.schedule-actions{grid-column:1/-1}
+  .playlist-add{grid-template-columns:1fr}.playlist-item{grid-template-columns:28px 1fr}.playlist-item>label,.playlist-item>div:last-child{grid-column:2}
+  .weekday-grid{grid-template-columns:repeat(4,1fr)}
+}

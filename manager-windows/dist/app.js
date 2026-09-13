@@ -192,14 +192,16 @@ function dateToIso(value) {
 function unreadManagerCount(){
   return supportRequests.reduce((count,r)=>count+(r.manager_viewed_at?0:1)+(r.support_request_messages||[]).filter(m=>m.sender_role==="customer"&&!m.manager_viewed_at).length,0);
 }
+function unreadCustomerCount(){
+  return supportRequests.reduce((count,r)=>count+(r.support_request_messages||[]).filter(m=>m.sender_role==="manager"&&!m.customer_viewed_at).length,0);
+}
 function nav(page,icon,label,badge=0){
   return `<button data-page="${page}" class="${activePage===page?"active":""}"><span>${icon} ${label}</span><b class="nav-badge ${badge?"":"hidden"}">${badge>99?"99+":badge}</b></button>`;
 }
 function updateRequestBadge(){
-  if(!isManager())return;
-  const badge=document.querySelector('[data-page="requests"] .nav-badge');
+  const badge=document.querySelector(isManager()?'[data-page="requests"] .nav-badge':'[data-customer-page="requests"] .nav-badge');
   if(!badge)return;
-  const count=unreadManagerCount();
+  const count=isManager()?unreadManagerCount():unreadCustomerCount();
   badge.textContent=count>99?"99+":String(count);
   badge.classList.toggle("hidden",count===0);
 }
@@ -214,11 +216,18 @@ async function markManagerRequestsViewed(){
 function stopNotificationPolling(){
   if(notificationTimer){clearInterval(notificationTimer);notificationTimer=null}
 }
+async function markCustomerRequestsViewed(){
+  try{
+    await request("/rest/v1/rpc/customer_mark_requests_viewed",{method:"POST",body:"{}"});
+    supportRequests=supportRequests.map(r=>({...r,support_request_messages:(r.support_request_messages||[]).map(m=>m.sender_role==="manager"?{...m,customer_viewed_at:m.customer_viewed_at||new Date().toISOString()}:m)}));
+  }catch(e){
+    error="Meldingen openen mislukt: "+(typeof e==="string"?e:(e?.message||String(e)));
+  }
+}
 function startNotificationPolling(){
   stopNotificationPolling();
-  if(!isManager())return;
   notificationTimer=setInterval(async()=>{
-    if(!session||!isManager())return;
+    if(!session||!identity)return;
     await loadSupportRequests();
   },30000);
 }
@@ -247,8 +256,8 @@ function renderDashboard() {
   document.querySelectorAll("[data-extend]").forEach(b=>b.onclick=()=>{const c=customers.find(x=>x.licenseId===b.dataset.extend);const base=Math.max(Date.now(),new Date(c.expiresAt+"T12:00:00").getTime());updateLicense(c.licenseId,{valid_until:new Date(base+365*86400000).toISOString().slice(0,10)})});
   document.querySelectorAll("[data-command]").forEach(b=>b.onclick=()=>sendCommand(b.dataset.player,b.dataset.command));
 }
-function customerNav(page,icon,label){
-  return `<button data-customer-page="${page}" class="${customerPage===page?"active":""}">${icon} ${label}</button>`;
+function customerNav(page,icon,label,badge=0){
+  return `<button data-customer-page="${page}" class="${customerPage===page?"active":""}"><span>${icon} ${label}</span><b class="nav-badge ${badge?"":"hidden"}">${badge>99?"99+":badge}</b></button>`;
 }
 function customerOverviewPanel(customer,ownPlayers,active){
   const address=[`${customer?.street||""} ${customer?.houseNumber||""}`.trim(),`${customer?.postalCode||""} ${customer?.city||""}`.trim(),customer?.country].filter(Boolean).join(", ")||"Nog niet ingevuld";
@@ -274,11 +283,12 @@ function renderCustomerDashboard(){
   const pageTitle=({overview:"Overzicht",players:"Players",media:"Media",planning:"Planning",requests:"Verzoeken"})[customerPage]||"Overzicht";
   const heading=customerPage==="overview"?`${greeting()}, ${esc(identity.name)}.`:esc(pageTitle);
   const content=customerPage==="players"?customerPlayersPage(customer,ownPlayers,active):customerPage==="media"?customerComingSoonPage("media"):customerPage==="planning"?customerComingSoonPage("planning"):customerPage==="requests"?customerRequestsPage(ownRequests):customerOverviewPanel(customer,ownPlayers,active);
-  app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${customerNav("overview","▦","Overzicht")}${customerNav("players","▰","Players")}${customerNav("media","▧","Media")}${customerNav("planning","≡","Planning")}${customerNav("requests","✉","Verzoeken")}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN · ${esc(pageTitle.toUpperCase())}</p><h1>${heading}</h1><p>${esc(title)} · ${esc(customer?.customerNumber||"")}</p></div></header>${error?`<p class="error-banner customer-error">${esc(error)}</p>`:""}${content}</section></main><div id="modal-root"></div>`;
+  app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${customerNav("overview","▦","Overzicht")}${customerNav("players","▰","Players")}${customerNav("media","▧","Media")}${customerNav("planning","≡","Planning")}${customerNav("requests","✉","Verzoeken",unreadCustomerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN · ${esc(pageTitle.toUpperCase())}</p><h1>${heading}</h1><p>${esc(title)} · ${esc(customer?.customerNumber||"")}</p></div></header>${error?`<p class="error-banner customer-error">${esc(error)}</p>`:""}${content}</section></main><div id="modal-root"></div>`;
   document.getElementById("logout").onclick=()=>{stopNotificationPolling();saveSession(null);identity=null;customerPage="overview";customers=[];players=[];supportRequests=[];renderLogin()};
-  document.querySelectorAll("[data-customer-page]").forEach(button=>button.onclick=()=>{customerPage=button.dataset.customerPage;error="";renderCustomerDashboard()});
+  document.querySelectorAll("[data-customer-page]").forEach(button=>button.onclick=async()=>{customerPage=button.dataset.customerPage;error="";if(customerPage==="requests")await markCustomerRequestsViewed();renderCustomerDashboard()});
   document.getElementById("customer-pair-player")?.addEventListener("click",()=>{error="Playerkoppeling wordt aangesloten zodra de Android-testplayer beschikbaar is.";renderCustomerDashboard()});
   document.getElementById("new-request")?.addEventListener("click",renderNewRequestModal);
+  document.querySelectorAll("[data-customer-reply]").forEach(button=>button.onclick=()=>renderCustomerReplyModal(button.dataset.customerReply));
 }
 
 function requestThreadHtml(r){
@@ -295,7 +305,28 @@ function managerRequestCard(r,showCustomer=true){
   return `<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3>${showCustomer?`<small>${esc(customer?.name||"Onbekende klant")} · ${esc(customer?.customerNumber||"")}</small>`:""}${requestThreadHtml(r)}</div><div class="request-controls">${requestStatusSelect(r)}<button class="primary reply-button" data-reply-request="${esc(r.id)}">Reageren</button><small>${fmt(r.created_at)}</small></div></article>`;
 }
 function customerRequestsHtml(rows){
-  return rows.length?`<div class="request-list">${rows.map(r=>`<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3>${requestThreadHtml(r)}</div><div><span class="request-status ${esc(r.status)}">${requestStatusLabel(r.status)}</span><small>${fmt(r.created_at)}</small></div></article>`).join("")}</div>`:'<div class="empty">Nog geen verzoeken ingediend.</div>';
+  return rows.length?`<div class="request-list">${rows.map(r=>`<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3>${requestThreadHtml(r)}</div><div class="request-controls"><span class="request-status ${esc(r.status)}">${requestStatusLabel(r.status)}</span><button class="primary reply-button" data-customer-reply="${esc(r.id)}">Reageren</button><small>${fmt(r.created_at)}</small></div></article>`).join("")}</div>`:'<div class="empty">Nog geen verzoeken ingediend.</div>';
+}
+function renderCustomerReplyModal(id){
+  const r=supportRequests.find(item=>item.id===id);
+  if(!r)return;
+  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal reply-modal" id="customer-reply-form"><div class="modal-title"><div><p class="eyebrow">ANTWOORD AAN SCREENFLOW</p><h2>${esc(r.subject)}</h2></div><button type="button" id="close">×</button></div><div class="modal-thread">${requestThreadHtml(r)}</div><label>Jouw reactie<textarea id="customer-reply-message" minlength="1" maxlength="4000" rows="5" required autofocus></textarea></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="customer-reply-submit">Reactie versturen</button></div></form></div>`;
+  const close=()=>document.getElementById("modal-root").innerHTML="";
+  document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};
+  document.getElementById("customer-reply-form").onsubmit=e=>sendCustomerReply(e,id);
+  document.getElementById("customer-reply-message").focus();
+}
+async function sendCustomerReply(event,id){
+  event.preventDefault();
+  const button=document.getElementById("customer-reply-submit");button.disabled=true;button.textContent="Versturen…";
+  try{
+    await request("/rest/v1/rpc/customer_reply_to_request",{method:"POST",body:JSON.stringify({p_request_id:id,p_message:document.getElementById("customer-reply-message").value.trim()})});
+    document.getElementById("modal-root").innerHTML="";
+    await loadSupportRequests();
+    renderCustomerDashboard();
+  }catch(e){
+    const p=document.getElementById("modal-error");p.textContent="Reactie versturen mislukt: "+(typeof e==="string"?e:(e?.message||e));p.classList.remove("hidden");button.disabled=false;button.textContent="Reactie versturen";
+  }
 }
 function requestsPanel(){
   const open=supportRequests.filter(r=>r.status!=="resolved");

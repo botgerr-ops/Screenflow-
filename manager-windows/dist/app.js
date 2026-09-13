@@ -13,6 +13,7 @@ let activePage = "overview";
 let selectedCustomerId = "";
 let customerPage = "overview";
 let identity = null;
+let notificationTimer = null;
 
 function loadSession() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
@@ -80,6 +81,7 @@ async function bootAuthenticated(){
     await resolveIdentity();
     if(identity.forcePasswordChange){renderPasswordChange();return}
     await Promise.all([loadCustomers(),loadPlayers(),loadSupportRequests()]);
+    startNotificationPolling();
     renderDashboard();
   } catch(e) {
     saveSession(null);
@@ -159,8 +161,10 @@ async function loadPlayers() {
 async function loadSupportRequests(){
   try {
     const scope=isManager()?"":`&organization_id=eq.${encodeURIComponent(identity.organizationId)}`;
-    const rows=await request(`/rest/v1/support_requests?select=*&order=created_at.desc${scope}`);
-    supportRequests=rows||[];
+    const select=encodeURIComponent("*,support_request_messages(*)");
+    const rows=await request(`/rest/v1/support_requests?select=${select}&order=created_at.desc${scope}`);
+    supportRequests=(rows||[]).map(r=>({...r,support_request_messages:[...(r.support_request_messages||[])].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at))}));
+    updateRequestBadge();
   } catch(e) { supportRequests=[]; }
 }
 function greeting(){
@@ -185,7 +189,39 @@ function dateToIso(value) {
   return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
 }
 
-function nav(page,icon,label){return `<button data-page="${page}" class="${activePage===page?"active":""}">${icon} ${label}</button>`}
+function unreadManagerCount(){
+  return supportRequests.reduce((count,r)=>count+(r.manager_viewed_at?0:1)+(r.support_request_messages||[]).filter(m=>m.sender_role==="customer"&&!m.manager_viewed_at).length,0);
+}
+function nav(page,icon,label,badge=0){
+  return `<button data-page="${page}" class="${activePage===page?"active":""}"><span>${icon} ${label}</span><b class="nav-badge ${badge?"":"hidden"}">${badge>99?"99+":badge}</b></button>`;
+}
+function updateRequestBadge(){
+  if(!isManager())return;
+  const badge=document.querySelector('[data-page="requests"] .nav-badge');
+  if(!badge)return;
+  const count=unreadManagerCount();
+  badge.textContent=count>99?"99+":String(count);
+  badge.classList.toggle("hidden",count===0);
+}
+async function markManagerRequestsViewed(){
+  try{
+    await request("/rest/v1/rpc/manager_mark_requests_viewed",{method:"POST",body:"{}"});
+    supportRequests=supportRequests.map(r=>({...r,manager_viewed_at:r.manager_viewed_at||new Date().toISOString(),support_request_messages:(r.support_request_messages||[]).map(m=>m.sender_role==="customer"?{...m,manager_viewed_at:m.manager_viewed_at||new Date().toISOString()}:m)}));
+  }catch(e){
+    error="Meldingen openen mislukt: "+(typeof e==="string"?e:(e?.message||String(e)));
+  }
+}
+function stopNotificationPolling(){
+  if(notificationTimer){clearInterval(notificationTimer);notificationTimer=null}
+}
+function startNotificationPolling(){
+  stopNotificationPolling();
+  if(!isManager())return;
+  notificationTimer=setInterval(async()=>{
+    if(!session||!isManager())return;
+    await loadSupportRequests();
+  },30000);
+}
 function renderDashboard() {
   if(!isManager()){renderCustomerDashboard();return}
   const shown=customers.filter(c=>(c.name+c.contactName+c.email).toLowerCase().includes(query.toLowerCase()));
@@ -194,15 +230,16 @@ function renderDashboard() {
   const title=activePage==="customer"?(selected?.name||"Klant"):activePage==="requests"?"Verzoeken":activePage==="customers"?"Klanten":`${greeting()}, ${identity.name}.`;
   const subtitle=activePage==="customer"?"Klantgegevens, licentie, account, players en verzoeken.":activePage==="requests"?"Alle openstaande klantvragen vanuit één plek.":"Beheer klanten en playerlicenties vanuit één plek.";
   const action=activePage==="customer"?'<button class="small-action back-button" id="back-customers">← Terug naar klanten</button>':activePage==="requests"?"":'<button class="primary" id="new-customer">＋ Nieuwe klant</button>';
-  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("requests","✉","Verzoeken")}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header><div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}${activePage==="customer"?customerDetailPanel(selected):activePage==="requests"?requestsPanel():customersPanel(shown)}</section></main><div id="modal-root"></div>`;
-  document.getElementById("logout").onclick=()=>{saveSession(null);identity=null;customers=[];players=[];supportRequests=[];renderLogin()};
-  document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>{activePage=b.dataset.page;query="";error="";renderDashboard()});
+  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("requests","✉","Verzoeken",unreadManagerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header><div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}${activePage==="customer"?customerDetailPanel(selected):activePage==="requests"?requestsPanel():customersPanel(shown)}</section></main><div id="modal-root"></div>`;
+  document.getElementById("logout").onclick=()=>{stopNotificationPolling();saveSession(null);identity=null;customers=[];players=[];supportRequests=[];renderLogin()};
+  document.querySelectorAll("[data-page]").forEach(b=>b.onclick=async()=>{activePage=b.dataset.page;query="";error="";if(activePage==="requests")await markManagerRequestsViewed();renderDashboard()});
   document.getElementById("new-customer")?.addEventListener("click",renderModal);
   document.getElementById("back-customers")?.addEventListener("click",()=>{activePage="customers";selectedCustomerId="";error="";renderDashboard()});
   document.querySelectorAll("[data-open-customer]").forEach(row=>row.onclick=e=>{if(e.target.closest("button,input"))return;selectedCustomerId=row.dataset.openCustomer;activePage="customer";error="";renderDashboard()});
   document.getElementById("customer-admin-access")?.addEventListener("click",()=>selected&&renderAdminAccessModal(selected));
   document.getElementById("edit-customer")?.addEventListener("click",()=>selected&&renderEditCustomerModal(selected));
   document.querySelectorAll("[data-request-status]").forEach(select=>select.onchange=()=>updateRequestStatus(select.dataset.requestStatus,select.value));
+  document.querySelectorAll("[data-reply-request]").forEach(button=>button.onclick=()=>renderManagerReplyModal(button.dataset.replyRequest));
   const search=document.getElementById("search"); if(search) search.oninput=e=>{query=e.target.value;renderDashboard();document.getElementById("search")?.focus()};
   document.querySelectorAll("[data-status]").forEach(b=>b.onclick=()=>updateLicense(b.dataset.id,{status:b.dataset.status==="active"?"blocked":"active"}));
   document.querySelectorAll("[data-save-date]").forEach(b=>b.onclick=()=>saveLicenseDate(b.dataset.saveDate));
@@ -238,22 +275,57 @@ function renderCustomerDashboard(){
   const heading=customerPage==="overview"?`${greeting()}, ${esc(identity.name)}.`:esc(pageTitle);
   const content=customerPage==="players"?customerPlayersPage(customer,ownPlayers,active):customerPage==="media"?customerComingSoonPage("media"):customerPage==="planning"?customerComingSoonPage("planning"):customerPage==="requests"?customerRequestsPage(ownRequests):customerOverviewPanel(customer,ownPlayers,active);
   app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${customerNav("overview","▦","Overzicht")}${customerNav("players","▰","Players")}${customerNav("media","▧","Media")}${customerNav("planning","≡","Planning")}${customerNav("requests","✉","Verzoeken")}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN · ${esc(pageTitle.toUpperCase())}</p><h1>${heading}</h1><p>${esc(title)} · ${esc(customer?.customerNumber||"")}</p></div></header>${error?`<p class="error-banner customer-error">${esc(error)}</p>`:""}${content}</section></main><div id="modal-root"></div>`;
-  document.getElementById("logout").onclick=()=>{saveSession(null);identity=null;customerPage="overview";customers=[];players=[];supportRequests=[];renderLogin()};
+  document.getElementById("logout").onclick=()=>{stopNotificationPolling();saveSession(null);identity=null;customerPage="overview";customers=[];players=[];supportRequests=[];renderLogin()};
   document.querySelectorAll("[data-customer-page]").forEach(button=>button.onclick=()=>{customerPage=button.dataset.customerPage;error="";renderCustomerDashboard()});
   document.getElementById("customer-pair-player")?.addEventListener("click",()=>{error="Playerkoppeling wordt aangesloten zodra de Android-testplayer beschikbaar is.";renderCustomerDashboard()});
   document.getElementById("new-request")?.addEventListener("click",renderNewRequestModal);
 }
 
+function requestThreadHtml(r){
+  const messages=r.support_request_messages||[];
+  const legacy=r.manager_note?[{sender_role:"manager",message:r.manager_note,created_at:r.updated_at||r.created_at}]:[];
+  const all=[...legacy,...messages];
+  return `<div class="request-thread"><div class="thread-message customer-message"><strong>Klant</strong><p>${esc(r.description)}</p><small>${fmt(r.created_at)}</small></div>${all.map(m=>`<div class="thread-message ${m.sender_role==="manager"?"manager-message":"customer-message"}"><strong>${m.sender_role==="manager"?"ScreenFlow":"Klant"}</strong><p>${esc(m.message)}</p><small>${fmt(m.created_at)}</small></div>`).join("")}</div>`;
+}
+function requestStatusSelect(r){
+  return `<select data-request-status="${esc(r.id)}"><option value="new" ${r.status==="new"?"selected":""}>Nieuw</option><option value="in_progress" ${r.status==="in_progress"?"selected":""}>In behandeling</option><option value="waiting_customer" ${r.status==="waiting_customer"?"selected":""}>Wacht op klant</option><option value="resolved" ${r.status==="resolved"?"selected":""}>Afgerond</option></select>`;
+}
+function managerRequestCard(r,showCustomer=true){
+  const customer=customers.find(c=>c.id===r.organization_id);
+  return `<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3>${showCustomer?`<small>${esc(customer?.name||"Onbekende klant")} · ${esc(customer?.customerNumber||"")}</small>`:""}${requestThreadHtml(r)}</div><div class="request-controls">${requestStatusSelect(r)}<button class="primary reply-button" data-reply-request="${esc(r.id)}">Reageren</button><small>${fmt(r.created_at)}</small></div></article>`;
+}
 function customerRequestsHtml(rows){
-  return rows.length?`<div class="request-list">${rows.map(r=>`<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3><p>${esc(r.description)}</p>${r.manager_note?`<blockquote>Reactie ScreenFlow: ${esc(r.manager_note)}</blockquote>`:""}</div><div><span class="request-status ${esc(r.status)}">${requestStatusLabel(r.status)}</span><small>${fmt(r.created_at)}</small></div></article>`).join("")}</div>`:'<div class="empty">Nog geen verzoeken ingediend.</div>';
+  return rows.length?`<div class="request-list">${rows.map(r=>`<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3>${requestThreadHtml(r)}</div><div><span class="request-status ${esc(r.status)}">${requestStatusLabel(r.status)}</span><small>${fmt(r.created_at)}</small></div></article>`).join("")}</div>`:'<div class="empty">Nog geen verzoeken ingediend.</div>';
 }
 function requestsPanel(){
   const open=supportRequests.filter(r=>r.status!=="resolved");
-  return `<section class="panel"><div class="panel-head"><div><h2>Verzoeken</h2><p>${open.length} openstaand · ${supportRequests.length} totaal</p></div></div><div class="request-list manager-requests">${supportRequests.length?supportRequests.map(r=>{const customer=customers.find(c=>c.id===r.organization_id);return `<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3><small>${esc(customer?.name||"Onbekende klant")} · ${esc(customer?.customerNumber||"")}</small><p>${esc(r.description)}</p>${r.manager_note?`<blockquote>Notitie: ${esc(r.manager_note)}</blockquote>`:""}</div><div><select data-request-status="${esc(r.id)}"><option value="new" ${r.status==="new"?"selected":""}>Nieuw</option><option value="in_progress" ${r.status==="in_progress"?"selected":""}>In behandeling</option><option value="waiting_customer" ${r.status==="waiting_customer"?"selected":""}>Wacht op klant</option><option value="resolved" ${r.status==="resolved"?"selected":""}>Afgerond</option></select><small>${fmt(r.created_at)}</small></div></article>`}).join(""):'<div class="empty">Er zijn nog geen klantverzoeken.</div>'}</div></section>`;
+  return `<section class="panel"><div class="panel-head"><div><h2>Verzoeken</h2><p>${open.length} openstaand · ${supportRequests.length} totaal</p></div></div><div class="request-list manager-requests">${supportRequests.length?supportRequests.map(r=>managerRequestCard(r,true)).join(""):'<div class="empty">Er zijn nog geen klantverzoeken.</div>'}</div></section>`;
 }
 function customerRequestPanel(c){
   const rows=supportRequests.filter(r=>r.organization_id===c.id);
-  return `<section class="panel requests-section"><div class="panel-head"><div><h2>Verzoeken van ${esc(c.name)}</h2><p>${rows.filter(r=>r.status!=="resolved").length} openstaand · ${rows.length} totaal</p></div></div>${rows.length?`<div class="request-list manager-requests">${rows.map(r=>`<article class="request-card"><div><span class="priority ${esc(r.priority)}">${priorityLabel(r.priority)}</span><h3>${esc(r.subject)}</h3><p>${esc(r.description)}</p></div><div><select data-request-status="${esc(r.id)}"><option value="new" ${r.status==="new"?"selected":""}>Nieuw</option><option value="in_progress" ${r.status==="in_progress"?"selected":""}>In behandeling</option><option value="waiting_customer" ${r.status==="waiting_customer"?"selected":""}>Wacht op klant</option><option value="resolved" ${r.status==="resolved"?"selected":""}>Afgerond</option></select><small>${fmt(r.created_at)}</small></div></article>`).join("")}</div>`:'<div class="empty">Deze klant heeft nog geen verzoeken ingediend.</div>'}</section>`;
+  return `<section class="panel requests-section"><div class="panel-head"><div><h2>Verzoeken van ${esc(c.name)}</h2><p>${rows.filter(r=>r.status!=="resolved").length} openstaand · ${rows.length} totaal</p></div></div>${rows.length?`<div class="request-list manager-requests">${rows.map(r=>managerRequestCard(r,false)).join("")}</div>`:'<div class="empty">Deze klant heeft nog geen verzoeken ingediend.</div>'}</section>`;
+}
+function renderManagerReplyModal(id){
+  const r=supportRequests.find(item=>item.id===id);
+  if(!r)return;
+  const customer=customers.find(c=>c.id===r.organization_id);
+  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal reply-modal" id="reply-form"><div class="modal-title"><div><p class="eyebrow">ANTWOORD AAN ${esc(customer?.name||"KLANT")}</p><h2>${esc(r.subject)}</h2></div><button type="button" id="close">×</button></div><div class="modal-thread">${requestThreadHtml(r)}</div><label>Jouw reactie<textarea id="reply-message" minlength="1" maxlength="4000" rows="5" required autofocus></textarea></label><label>Status na verzenden<select id="reply-status"><option value="in_progress" ${r.status==="in_progress"?"selected":""}>In behandeling</option><option value="waiting_customer" ${r.status==="waiting_customer"?"selected":""}>Wacht op klant</option><option value="resolved" ${r.status==="resolved"?"selected":""}>Afgerond</option><option value="new" ${r.status==="new"?"selected":""}>Nieuw</option></select></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="reply-submit">Reactie versturen</button></div></form></div>`;
+  const close=()=>document.getElementById("modal-root").innerHTML="";
+  document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};
+  document.getElementById("reply-form").onsubmit=e=>sendManagerReply(e,id);
+  document.getElementById("reply-message").focus();
+}
+async function sendManagerReply(event,id){
+  event.preventDefault();
+  const button=document.getElementById("reply-submit");button.disabled=true;button.textContent="Versturen…";
+  try{
+    await request("/rest/v1/rpc/manager_reply_to_request",{method:"POST",body:JSON.stringify({p_request_id:id,p_message:document.getElementById("reply-message").value.trim(),p_status:document.getElementById("reply-status").value})});
+    document.getElementById("modal-root").innerHTML="";
+    await loadSupportRequests();
+    renderDashboard();
+  }catch(e){
+    const p=document.getElementById("modal-error");p.textContent="Reactie versturen mislukt: "+(typeof e==="string"?e:(e?.message||e));p.classList.remove("hidden");button.disabled=false;button.textContent="Reactie versturen";
+  }
 }
 async function updateRequestStatus(id,status){
   try{

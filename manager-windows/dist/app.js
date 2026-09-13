@@ -5,8 +5,10 @@ const STORAGE_KEY = "screenflow_manager_session";
 const app = document.getElementById("app");
 let session = loadSession();
 let customers = [];
+let players = [];
 let error = "";
 let query = "";
+let activePage = "overview";
 
 function loadSession() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null; } catch { return null; }
@@ -58,7 +60,7 @@ async function login(event) {
   const button=document.getElementById("login-button"); button.disabled=true; button.textContent="Inloggen…";
   try {
     const data=await nativeRequest("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email:document.getElementById("email").value.trim(),password:document.getElementById("password").value})});
-    saveSession(data); await loadCustomers(); renderDashboard();
+    saveSession(data); await Promise.all([loadCustomers(),loadPlayers()]); renderDashboard();
   } catch(e) {
     const message=typeof e==="string" ? e : String(e?.message||e||"Onbekende fout");
     if(/invalid login credentials/i.test(message)) error="E-mailadres of wachtwoord is niet juist.";
@@ -76,17 +78,50 @@ async function loadCustomers() {
     error="";
   } catch(e) { error="Kon de gegevens niet laden: "+(typeof e==="string"?e:(e?.message||e)); customers=[]; }
 }
+
+async function loadPlayers() {
+  try {
+    const rows=await request("/rest/v1/devices?select=*");
+    players=(rows||[]).map(d=>({
+      id:d.id, name:d.name||d.device_name||"Naamloze player",
+      platform:d.platform||"Android", version:d.app_version||"—",
+      organizationId:d.organization_id||"", code:d.pairing_code||"",
+      lastSeen:d.last_seen_at||d.updated_at||d.created_at||null,
+      pendingCommand:d.pending_command||""
+    }));
+  } catch(e) { players=[]; }
+}
+function online(p){return p.lastSeen&&Date.now()-new Date(p.lastSeen).getTime()<90000}
+
 function fmt(date) { try { return new Intl.DateTimeFormat("nl-NL",{day:"numeric",month:"short",year:"numeric"}).format(new Date(date+"T12:00:00")); } catch { return date; } }
+
+function nav(page,icon,label){return `<button data-page="${page}" class="${activePage===page?"active":""}">${icon} ${label}</button>`}
 function renderDashboard() {
   const shown=customers.filter(c=>(c.name+c.contactName+c.email).toLowerCase().includes(query.toLowerCase()));
-  const active=customers.filter(c=>c.status==="active").length, licenses=customers.reduce((n,c)=>n+c.playerLimit,0), used=customers.reduce((n,c)=>n+c.playersUsed,0);
-  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>MANAGER</small></span></div><nav><button class="active">▦ Overzicht</button><button>▣ Klanten</button><button>⌁ Licenties</button></nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW MANAGER</p><h1>Goedemorgen, Robin.</h1><p>Beheer klanten en playerlicenties vanuit één plek.</p></div><button class="primary" id="new-customer">＋ Nieuwe klant</button></header><div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${licenses-used} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>van ${licenses} plekken</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}<section class="panel"><div class="panel-head"><div><h2>Klanten</h2><p>Licenties, looptijd en gebruik.</p></div><label class="search">⌕<input id="search" value="${esc(query)}" placeholder="Zoek klant"></label></div><div class="table-wrap"><table><thead><tr><th>Klant</th><th>Status</th><th>Players</th><th>Geldig tot</th><th></th></tr></thead><tbody>${shown.length?shown.map(rowHtml).join(""):'<tr><td colspan="5" class="empty">Nog geen klanten. Maak je eerste klant aan.</td></tr>'}</tbody></table></div></section></section></main><div id="modal-root"></div>`;
-  document.getElementById("logout").onclick=()=>{saveSession(null);customers=[];renderLogin()};
-  document.getElementById("new-customer").onclick=renderModal;
-  document.getElementById("search").oninput=e=>{query=e.target.value;renderDashboard();document.getElementById("search").focus()};
+  const active=customers.filter(c=>c.status==="active").length, licenses=customers.reduce((n,c)=>n+c.playerLimit,0), used=players.filter(p=>p.organizationId).length;
+  const title=activePage==="players"?"Playerbeheer":activePage==="customers"?"Klanten":"Goedemorgen, Robin.";
+  const subtitle=activePage==="players"?"Koppel, controleer en bedien Android-players op afstand.":"Beheer klanten en playerlicenties vanuit één plek.";
+  const action=activePage==="players"?'<button class="primary" id="pair-player">＋ Player koppelen</button>':'<button class="primary" id="new-customer">＋ Nieuwe klant</button>';
+  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>MANAGER</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("players","▰","Players")}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW MANAGER</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header><div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>${error?`<p class="error-banner">${esc(error)}</p>`:""}${activePage==="players"?playersPanel():customersPanel(shown)}</section></main><div id="modal-root"></div>`;
+  document.getElementById("logout").onclick=()=>{saveSession(null);customers=[];players=[];renderLogin()};
+  document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>{activePage=b.dataset.page;query="";error="";renderDashboard()});
+  document.getElementById("new-customer")?.addEventListener("click",renderModal);
+  document.getElementById("pair-player")?.addEventListener("click",renderPairModal);
+  const search=document.getElementById("search"); if(search) search.oninput=e=>{query=e.target.value;renderDashboard();document.getElementById("search")?.focus()};
   document.querySelectorAll("[data-status]").forEach(b=>b.onclick=()=>updateLicense(b.dataset.id,{status:b.dataset.status==="active"?"blocked":"active"}));
   document.querySelectorAll("[data-extend]").forEach(b=>b.onclick=()=>{const c=customers.find(x=>x.licenseId===b.dataset.extend);const base=Math.max(Date.now(),new Date(c.expiresAt).getTime());updateLicense(c.licenseId,{valid_until:new Date(base+365*86400000).toISOString().slice(0,10)})});
+  document.querySelectorAll("[data-command]").forEach(b=>b.onclick=()=>sendCommand(b.dataset.player,b.dataset.command));
 }
+function customersPanel(shown){return `<section class="panel"><div class="panel-head"><div><h2>Klanten</h2><p>Licenties, looptijd en gebruik.</p></div><label class="search">⌕<input id="search" value="${esc(query)}" placeholder="Zoek klant"></label></div><div class="table-wrap"><table><thead><tr><th>Klant</th><th>Status</th><th>Players</th><th>Geldig tot</th><th></th></tr></thead><tbody>${shown.length?shown.map(rowHtml).join(""):'<tr><td colspan="5" class="empty">Nog geen klanten. Maak je eerste klant aan.</td></tr>'}</tbody></table></div></section>`}
+function playersPanel(){
+  const shown=players.filter(p=>(p.name+p.platform+p.version+p.code).toLowerCase().includes(query.toLowerCase()));
+  return `<section class="panel"><div class="panel-head"><div><h2>Players</h2><p>Status, versie en bediening op afstand.</p></div><label class="search">⌕<input id="search" value="${esc(query)}" placeholder="Zoek player"></label></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Klant</th><th>Status</th><th>Versie</th><th>Acties</th></tr></thead><tbody>${shown.length?shown.map(playerRow).join(""):'<tr><td colspan="5" class="empty">Nog geen players geregistreerd. Open ScreenFlow Player om een koppelcode te krijgen.</td></tr>'}</tbody></table></div></section>`;
+}
+function playerRow(p){
+  const customer=customers.find(c=>c.id===p.organizationId);
+  return `<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}${p.code?` · code ${esc(p.code)}`:""}</small></div></div></td><td>${customer?esc(customer.name):'<span class="muted">Niet gekoppeld</span>'}</td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span><small class="last-seen">${fmt(p.lastSeen)}</small></td><td>${esc(p.version)}</td><td><div class="actions"><button class="small-action" data-player="${esc(p.id)}" data-command="sync">Synchroniseer</button><button class="small-action" data-player="${esc(p.id)}" data-command="update">Update app</button>${p.pendingCommand?`<small class="pending">Wacht op: ${esc(p.pendingCommand)}</small>`:""}</div></td></tr>`;
+}
+
 function rowHtml(c) { const pct=c.playerLimit?Math.min(100,c.playersUsed/c.playerLimit*100):0;return `<tr><td><div class="customer"><span>${esc(c.name.slice(0,2).toUpperCase())}</span><div><strong>${esc(c.name)}</strong><small>${esc(c.contactName)} · ${esc(c.email)}</small></div></div></td><td><button data-status="${esc(c.status)}" data-id="${esc(c.licenseId)}" class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</button></td><td><strong>${c.playersUsed} / ${c.playerLimit}</strong><div class="meter"><i style="width:${pct}%"></i></div></td><td><span class="date">▣ ${fmt(c.expiresAt)}</span></td><td><button class="small-action" data-extend="${esc(c.licenseId)}">+1 jaar</button></td></tr>`; }
 async function updateLicense(id, values) { try {await request(`/rest/v1/licenses?id=eq.${encodeURIComponent(id)}`,{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify(values)});await loadCustomers();renderDashboard()}catch(e){error=typeof e==="string"?e:(e?.message||String(e));renderDashboard()} }
 function renderModal() {
@@ -103,5 +138,16 @@ async function createCustomer(event) {
   } catch(e) {const p=document.getElementById("modal-error");p.textContent="Klant aanmaken mislukt: "+(typeof e==="string"?e:(e?.message||e));p.classList.remove("hidden");button.disabled=false;button.textContent="Klant aanmaken";}
 }
 
-async function start() { if(!session){renderLogin();return} await loadCustomers();renderDashboard(); }
+async function sendCommand(playerId,command){try{await request("/rest/v1/rpc/manager_set_player_command",{method:"POST",body:JSON.stringify({p_device_id:playerId,p_command:command})});await loadPlayers();renderDashboard()}catch(e){error="Opdracht mislukt: "+(typeof e==="string"?e:(e?.message||e));renderDashboard()}}
+function renderPairModal(){
+  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="pair-form"><div class="modal-title"><div><p class="eyebrow">ANDROID PLAYER</p><h2>Player koppelen</h2></div><button type="button" id="close">×</button></div><label>Zescijferige koppelcode<input id="pair-code" required inputmode="numeric" maxlength="6" pattern="[0-9]{6}" placeholder="123456"></label><label>Klant<select id="pair-org" required><option value="">Kies een klant…</option>${customers.filter(c=>c.status==="active").map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${c.playersUsed}/${c.playerLimit})</option>`).join("")}</select></label><label>Naam van de player<input id="pair-name" required placeholder="Receptie Rotterdam"></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="create-button">Player koppelen</button></div></form></div>`;
+  const close=()=>document.getElementById("modal-root").innerHTML="";document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};document.getElementById("pair-form").onsubmit=pairPlayer;
+}
+async function pairPlayer(event){
+  event.preventDefault();const button=document.getElementById("create-button");button.disabled=true;button.textContent="Koppelen…";
+  try{await request("/rest/v1/rpc/manager_pair_player",{method:"POST",body:JSON.stringify({p_pairing_code:document.getElementById("pair-code").value,p_organization_id:document.getElementById("pair-org").value,p_name:document.getElementById("pair-name").value})});document.getElementById("modal-root").innerHTML="";await Promise.all([loadCustomers(),loadPlayers()]);activePage="players";renderDashboard()}
+  catch(e){const p=document.getElementById("modal-error");p.textContent="Koppelen mislukt: "+(typeof e==="string"?e:(e?.message||e));p.classList.remove("hidden");button.disabled=false;button.textContent="Player koppelen"}
+}
+
+async function start() { if(!session){renderLogin();return} await Promise.all([loadCustomers(),loadPlayers()]);renderDashboard(); }
 start();

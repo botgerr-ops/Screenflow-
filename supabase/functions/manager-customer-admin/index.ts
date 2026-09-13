@@ -1,11 +1,15 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+const FUNCTION_VERSION = "screenflow-admin-v4";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, apikey, content-type",
 };
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  const value = body && typeof body === "object" ? body as Record<string, unknown> : { data: body };
+  if (typeof value.message === "string") value.message = `[${FUNCTION_VERSION}] ${value.message}`;
+  return new Response(JSON.stringify({ function_version: FUNCTION_VERSION, ...value }), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 function randomPassword() {
   const bytes = crypto.getRandomValues(new Uint32Array(16));
@@ -17,6 +21,7 @@ function randomPassword() {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "GET") return json({ ok: true });
   if (req.method !== "POST") return json({ message: "Method not allowed" }, 405);
   try {
     const url = Deno.env.get("SUPABASE_URL");

@@ -1,6 +1,6 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const FUNCTION_VERSION = "screenflow-admin-v4";
+const FUNCTION_VERSION = "screenflow-admin-v5";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -102,6 +102,14 @@ Deno.serve(async (req) => {
     await admin.from("profiles").update({ full_name: fullName }).eq("user_id", user.id);
     return json({ email, temporary_password: temporaryPassword, created });
   } catch (error) {
-    return json({ message: error instanceof Error ? error.message : "Onbekende serverfout" }, 400);
+    console.error("manager-customer-admin", error);
+    let message = "Onbekende serverfout";
+    if (error instanceof Error) message = error.message;
+    else if (typeof error === "string") message = error;
+    else if (error && typeof error === "object") {
+      const value = error as Record<string, unknown>;
+      message = String(value.message || value.error_description || value.details || value.hint || JSON.stringify(value));
+    }
+    return json({ message }, 400);
   }
 });

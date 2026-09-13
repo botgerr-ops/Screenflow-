@@ -45,3 +45,20 @@
 .coming-soon>p:not(.eyebrow){color:var(--muted);max-width:520px;margin:12px auto 22px;line-height:1.6}
 .customer-error{margin-top:28px}
 @media(max-width:650px){.customer-info-grid{grid-template-columns:1fr}.customer-info-grid>div{padding-right:0!important}.customer-info-grid .wide{grid-column:auto}}
+
+
+nav button{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.nav-badge{display:inline-grid;place-items:center;min-width:21px;height:21px;padding:0 6px;border-radius:999px;background:#e5484d;color:#fff;font-size:11px;font-weight:900;line-height:1;box-shadow:0 0 0 2px #e5484d22}
+.request-controls{display:grid;gap:10px;min-width:165px}
+.reply-button{width:100%;padding:10px 12px!important}
+.request-thread{display:grid;gap:9px;margin-top:14px}
+.thread-message{border:1px solid #30352f;border-radius:11px;padding:11px 13px;background:#111411}
+.thread-message strong{display:block;color:#aeb5ab;font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.thread-message p{margin:6px 0!important;color:#d3d8d0!important}
+.thread-message small{margin-top:3px!important}
+.manager-message{border-color:#627324;background:#19200f}
+.manager-message strong{color:var(--lime)}
+.modal-thread{max-height:260px;overflow:auto;margin:-4px 0 20px;padding-right:5px}
+.reply-modal{width:min(680px,100%)}
+.reply-modal select{width:100%}
+@media(max-width:720px){.request-controls{min-width:0}.request-controls .reply-button{width:auto}}

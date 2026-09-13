@@ -34,24 +34,9 @@ using (
 );
 
 drop policy if exists support_request_messages_insert on public.support_request_messages;
-create policy support_request_messages_insert
-on public.support_request_messages for insert
-to authenticated
-with check (
-  (
-    public.is_manager()
-    and sender_id = auth.uid()
-    and sender_role = 'manager'
-  )
-  or
-  (
-    organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-    and sender_id = auth.uid()
-    and sender_role = 'customer'
-  )
-);
 
-grant select, insert on public.support_request_messages to authenticated;
+revoke insert on public.support_request_messages from authenticated;
+grant select on public.support_request_messages to authenticated;
 
 create or replace function public.manager_mark_requests_viewed()
 returns void

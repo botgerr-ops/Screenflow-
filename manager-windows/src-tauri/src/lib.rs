@@ -9,7 +9,7 @@ async fn supabase_request(
   token: Option<String>,
   prefer: Option<String>,
 ) -> Result<serde_json::Value, String> {
-  if !(path.starts_with("/auth/v1/") || path.starts_with("/rest/v1/")) {
+  if !(path.starts_with("/auth/v1/") || path.starts_with("/rest/v1/") || path.starts_with("/functions/v1/")) {
     return Err("Ongeldige API-route".into());
   }
   let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;

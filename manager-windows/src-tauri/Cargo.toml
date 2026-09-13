@@ -1,6 +1,6 @@
 [package]
 name = "screenflow-manager"
-version = "0.6.3"
+version = "0.7.0"
 description = "ScreenFlow Admin voor Windows"
 authors = ["ScreenFlow"]
 edition = "2021"

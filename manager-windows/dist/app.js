@@ -66,11 +66,9 @@ async function resolveIdentity() {
     if(!identity.organizationId) throw new Error("Dit klantaccount is nog niet aan een organisatie gekoppeld.");
     return;
   }
-  const userId=session?.user?.id;
-  const rows=await request(`/rest/v1/profiles?select=role,full_name&user_id=eq.${encodeURIComponent(userId)}&limit=1`);
-  const profile=rows?.[0];
-  if(String(profile?.role||"").toLowerCase()!=="manager") throw new Error("Dit account heeft geen toegang tot ScreenFlow Admin.");
-  identity={role:"manager",organizationId:"",forcePasswordChange:false,name:profile?.full_name||session?.user?.email||"Manager"};
+  const manager=await request("/rest/v1/rpc/is_manager",{method:"POST",body:"{}"});
+  if(manager!==true) throw new Error("Dit account heeft geen toegang tot ScreenFlow Admin.");
+  identity={role:"manager",organizationId:"",forcePasswordChange:false,name:session?.user?.user_metadata?.full_name||session?.user?.email||"Manager"};
 }
 function isManager(){return identity?.role==="manager"}
 async function bootAuthenticated(){

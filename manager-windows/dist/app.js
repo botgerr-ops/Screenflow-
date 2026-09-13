@@ -130,23 +130,31 @@ function renderModal() {
   const close=()=>document.getElementById("modal-root").innerHTML=""; document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};document.getElementById("customer-form").onsubmit=createCustomer;
 }
 async function createCustomer(event) {
-  event.preventDefault();const button=document.getElementById("create-button");button.disabled=true;button.textContent="Aanmaken…";
+  event.preventDefault();
+  const button=document.getElementById("create-button");
+  button.disabled=true;
+  button.textContent="Aanmaken…";
   try {
-    const org=await request("/rest/v1/organizations",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({name:document.getElementById("company").value,contact_name:document.getElementById("contact").value,contact_email:document.getElementById("customer-email").value})});
-    await request("/rest/v1/licenses",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({organization_id:org[0].id,status:"active",player_limit:Number(document.getElementById("limit").value),valid_until:document.getElementById("expires").value})});
-    document.getElementById("modal-root").innerHTML="";await loadCustomers();renderDashboard();
-  } catch(e) {const p=document.getElementById("modal-error");p.textContent="Klant aanmaken mislukt: "+(typeof e==="string"?e:(e?.message||e));p.classList.remove("hidden");button.disabled=false;button.textContent="Klant aanmaken";}
-}
-
-async function sendCommand(playerId,command){try{await request("/rest/v1/rpc/manager_set_player_command",{method:"POST",body:JSON.stringify({p_device_id:playerId,p_command:command})});await loadPlayers();renderDashboard()}catch(e){error="Opdracht mislukt: "+(typeof e==="string"?e:(e?.message||e));renderDashboard()}}
-function renderPairModal(){
-  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="pair-form"><div class="modal-title"><div><p class="eyebrow">ANDROID PLAYER</p><h2>Player koppelen</h2></div><button type="button" id="close">×</button></div><label>Zescijferige koppelcode<input id="pair-code" required inputmode="numeric" maxlength="6" pattern="[0-9]{6}" placeholder="123456"></label><label>Klant<select id="pair-org" required><option value="">Kies een klant…</option>${customers.filter(c=>c.status==="active").map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${c.playersUsed}/${c.playerLimit})</option>`).join("")}</select></label><label>Naam van de player<input id="pair-name" required placeholder="Receptie Rotterdam"></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="create-button">Player koppelen</button></div></form></div>`;
-  const close=()=>document.getElementById("modal-root").innerHTML="";document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};document.getElementById("pair-form").onsubmit=pairPlayer;
-}
-async function pairPlayer(event){
-  event.preventDefault();const button=document.getElementById("create-button");button.disabled=true;button.textContent="Koppelen…";
-  try{await request("/rest/v1/rpc/manager_pair_player",{method:"POST",body:JSON.stringify({p_pairing_code:document.getElementById("pair-code").value,p_organization_id:document.getElementById("pair-org").value,p_name:document.getElementById("pair-name").value})});document.getElementById("modal-root").innerHTML="";await Promise.all([loadCustomers(),loadPlayers()]);activePage="players";renderDashboard()}
-  catch(e){const p=document.getElementById("modal-error");p.textContent="Koppelen mislukt: "+(typeof e==="string"?e:(e?.message||e));p.classList.remove("hidden");button.disabled=false;button.textContent="Player koppelen"}
+    await request("/rest/v1/rpc/manager_create_customer",{
+      method:"POST",
+      body:JSON.stringify({
+        p_name:document.getElementById("company").value,
+        p_contact_name:document.getElementById("contact").value,
+        p_contact_email:document.getElementById("customer-email").value,
+        p_player_limit:Number(document.getElementById("limit").value),
+        p_valid_until:document.getElementById("expires").value
+      })
+    });
+    document.getElementById("modal-root").innerHTML="";
+    await loadCustomers();
+    renderDashboard();
+  } catch(e) {
+    const p=document.getElementById("modal-error");
+    p.textContent="Klant aanmaken mislukt: "+(typeof e==="string"?e:(e?.message||e));
+    p.classList.remove("hidden");
+    button.disabled=false;
+    button.textContent="Klant aanmaken";
+  }
 }
 
 async function start() { if(!session){renderLogin();return} await Promise.all([loadCustomers(),loadPlayers()]);renderDashboard(); }

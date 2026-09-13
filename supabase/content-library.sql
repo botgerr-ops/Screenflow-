@@ -72,34 +72,40 @@ alter table public.playlist_items enable row level security;
 alter table public.content_schedules enable row level security;
 
 drop policy if exists media_items_access on public.media_items;
-create policy media_items_access on public.media_items
-for all to authenticated
-using (
-  public.is_manager()
-  or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-)
+drop policy if exists media_items_select on public.media_items;
+drop policy if exists media_items_insert on public.media_items;
+drop policy if exists media_items_update on public.media_items;
+drop policy if exists media_items_delete on public.media_items;
+create policy media_items_select on public.media_items for select to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);
+create policy media_items_insert on public.media_items for insert to authenticated
 with check (
-  (
-    public.is_manager()
-    or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-  )
+  (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
   and uploaded_by = auth.uid()
 );
+create policy media_items_update on public.media_items for update to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
+with check (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);
+create policy media_items_delete on public.media_items for delete to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);
 
 drop policy if exists playlists_access on public.playlists;
-create policy playlists_access on public.playlists
-for all to authenticated
-using (
-  public.is_manager()
-  or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-)
+drop policy if exists playlists_select on public.playlists;
+drop policy if exists playlists_insert on public.playlists;
+drop policy if exists playlists_update on public.playlists;
+drop policy if exists playlists_delete on public.playlists;
+create policy playlists_select on public.playlists for select to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);
+create policy playlists_insert on public.playlists for insert to authenticated
 with check (
-  (
-    public.is_manager()
-    or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-  )
+  (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
   and created_by = auth.uid()
 );
+create policy playlists_update on public.playlists for update to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
+with check (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);
+create policy playlists_delete on public.playlists for delete to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);
 
 drop policy if exists playlist_items_access on public.playlist_items;
 create policy playlist_items_access on public.playlist_items
@@ -108,10 +114,7 @@ using (
   exists (
     select 1 from public.playlists p
     where p.id = playlist_id
-      and (
-        public.is_manager()
-        or p.organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-      )
+      and (public.is_manager() or p.organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
   )
 )
 with check (
@@ -121,32 +124,31 @@ with check (
     join public.media_items m on m.id = media_id
     where p.id = playlist_id
       and p.organization_id = m.organization_id
-      and (
-        public.is_manager()
-        or p.organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-      )
+      and (public.is_manager() or p.organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
   )
 );
 
 drop policy if exists content_schedules_access on public.content_schedules;
-create policy content_schedules_access on public.content_schedules
-for all to authenticated
-using (
-  public.is_manager()
-  or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-)
+drop policy if exists content_schedules_select on public.content_schedules;
+drop policy if exists content_schedules_insert on public.content_schedules;
+drop policy if exists content_schedules_update on public.content_schedules;
+drop policy if exists content_schedules_delete on public.content_schedules;
+create policy content_schedules_select on public.content_schedules for select to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);
+create policy content_schedules_insert on public.content_schedules for insert to authenticated
 with check (
-  (
-    public.is_manager()
-    or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid
-  )
+  (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
   and created_by = auth.uid()
-  and exists (
-    select 1 from public.playlists p
-    where p.id = playlist_id
-      and p.organization_id = organization_id
-  )
+  and exists (select 1 from public.playlists p where p.id = playlist_id and p.organization_id = organization_id)
 );
+create policy content_schedules_update on public.content_schedules for update to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
+with check (
+  (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid)
+  and exists (select 1 from public.playlists p where p.id = playlist_id and p.organization_id = organization_id)
+);
+create policy content_schedules_delete on public.content_schedules for delete to authenticated
+using (public.is_manager() or organization_id = nullif(auth.jwt() -> 'app_metadata' ->> 'organization_id', '')::uuid);
 
 grant select, insert, update, delete on public.media_items to authenticated;
 grant select, insert, update, delete on public.playlists to authenticated;

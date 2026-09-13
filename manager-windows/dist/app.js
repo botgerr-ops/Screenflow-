@@ -93,7 +93,7 @@ async function loadPlayers() {
 }
 function online(p){return p.lastSeen&&Date.now()-new Date(p.lastSeen).getTime()<90000}
 
-function fmt(date) { try { return new Intl.DateTimeFormat("nl-NL",{day:"numeric",month:"short",year:"numeric"}).format(new Date(date+"T12:00:00")); } catch { return date; } }
+function fmt(date) { if(!date)return "Nog nooit"; try { const value=String(date).includes("T")?date:date+"T12:00:00"; return new Intl.DateTimeFormat("nl-NL",{day:"numeric",month:"short",year:"numeric",hour:String(date).includes("T")?"2-digit":undefined,minute:String(date).includes("T")?"2-digit":undefined}).format(new Date(value)); } catch { return date; } }
 
 function nav(page,icon,label){return `<button data-page="${page}" class="${activePage===page?"active":""}">${icon} ${label}</button>`}
 function renderDashboard() {

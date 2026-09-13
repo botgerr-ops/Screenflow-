@@ -80,7 +80,7 @@ async function bootAuthenticated(){
   try {
     await resolveIdentity();
     if(identity.forcePasswordChange){renderPasswordChange();return}
-    await Promise.all([loadCustomers(),loadPlayers(),loadSupportRequests()]);
+    await Promise.all([loadCustomers(),loadPlayers(),loadSupportRequests(),loadContentData()]);
     startNotificationPolling();
     renderDashboard();
   } catch(e) {
@@ -108,7 +108,7 @@ async function changeFirstPassword(event){
     session.user.app_metadata={...(session.user.app_metadata||{}),force_password_change:false};
     saveSession(session);
     identity.forcePasswordChange=false;
-    await Promise.all([loadCustomers(),loadPlayers(),loadSupportRequests()]);
+    await Promise.all([loadCustomers(),loadPlayers(),loadSupportRequests(),loadContentData()]);
     renderDashboard();
   } catch(e) {
     error="Wachtwoord wijzigen mislukt: "+(typeof e==="string"?e:(e?.message||e));
@@ -280,15 +280,16 @@ function renderCustomerDashboard(){
   const ownRequests=supportRequests.filter(r=>r.organization_id===identity.organizationId);
   const active=customer?.status==="active"&&new Date((customer?.expiresAt||"1970-01-01")+"T23:59:59").getTime()>=Date.now();
   const title=customer?.name||"Mijn organisatie";
-  const pageTitle=({overview:"Overzicht",players:"Players",media:"Media",planning:"Planning",requests:"Verzoeken"})[customerPage]||"Overzicht";
+  const pageTitle=({overview:"Overzicht",players:"Players",media:"Media",playlists:"Afspeellijsten",planning:"Planning",requests:"Verzoeken"})[customerPage]||"Overzicht";
   const heading=customerPage==="overview"?`${greeting()}, ${esc(identity.name)}.`:esc(pageTitle);
-  const content=customerPage==="players"?customerPlayersPage(customer,ownPlayers,active):customerPage==="media"?customerComingSoonPage("media"):customerPage==="planning"?customerComingSoonPage("planning"):customerPage==="requests"?customerRequestsPage(ownRequests):customerOverviewPanel(customer,ownPlayers,active);
-  app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${customerNav("overview","▦","Overzicht")}${customerNav("players","▰","Players")}${customerNav("media","▧","Media")}${customerNav("planning","≡","Planning")}${customerNav("requests","✉","Verzoeken",unreadCustomerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN · ${esc(pageTitle.toUpperCase())}</p><h1>${heading}</h1><p>${esc(title)} · ${esc(customer?.customerNumber||"")}</p></div></header>${error?`<p class="error-banner customer-error">${esc(error)}</p>`:""}${content}</section></main><div id="modal-root"></div>`;
+  const content=customerPage==="players"?customerPlayersPage(customer,ownPlayers,active):customerPage==="media"?customerMediaPage():customerPage==="playlists"?customerPlaylistsPage():customerPage==="planning"?customerPlanningPage():customerPage==="requests"?customerRequestsPage(ownRequests):customerOverviewPanel(customer,ownPlayers,active);
+  app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${customerNav("overview","▦","Overzicht")}${customerNav("players","▰","Players")}${customerNav("media","▧","Media")}${customerNav("playlists","▶","Afspeellijsten")}${customerNav("planning","≡","Planning")}${customerNav("requests","✉","Verzoeken",unreadCustomerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN · ${esc(pageTitle.toUpperCase())}</p><h1>${heading}</h1><p>${esc(title)} · ${esc(customer?.customerNumber||"")}</p></div></header>${error?`<p class="error-banner customer-error">${esc(error)}</p>`:""}${content}</section></main><div id="modal-root"></div>`;
   document.getElementById("logout").onclick=()=>{stopNotificationPolling();saveSession(null);identity=null;customerPage="overview";customers=[];players=[];supportRequests=[];renderLogin()};
   document.querySelectorAll("[data-customer-page]").forEach(button=>button.onclick=async()=>{customerPage=button.dataset.customerPage;error="";if(customerPage==="requests")await markCustomerRequestsViewed();renderCustomerDashboard()});
   document.getElementById("customer-pair-player")?.addEventListener("click",()=>{error="Playerkoppeling wordt aangesloten zodra de Android-testplayer beschikbaar is.";renderCustomerDashboard()});
   document.getElementById("new-request")?.addEventListener("click",renderNewRequestModal);
   document.querySelectorAll("[data-customer-reply]").forEach(button=>button.onclick=()=>renderCustomerReplyModal(button.dataset.customerReply));
+  bindContentPage();
 }
 
 function requestThreadHtml(r){

@@ -95,7 +95,7 @@ language sql
 stable
 security definer
 set search_path = public, pg_temp
-as $
+as $$
   select jsonb_build_object(
     'role', coalesce(p.role::text, ''),
     'full_name', coalesce(nullif(p.full_name, ''), auth.jwt() ->> 'email')
@@ -103,7 +103,7 @@ as $
   from public.profiles p
   where p.user_id = auth.uid()
   limit 1;
-$;
+$$;
 
 revoke all on function public.current_screenflow_identity() from public;
 grant execute on function public.current_screenflow_identity() to authenticated;

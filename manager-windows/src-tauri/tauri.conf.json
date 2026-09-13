@@ -8,5 +8,5 @@
     "windows": [{ "label": "main", "title": "ScreenFlow Manager", "width": 1440, "height": 920, "minWidth": 980, "minHeight": 680, "center": true, "url": "https://screenflow-manager.botger-r.chatgpt.site" }],
     "security": { "csp": null, "capabilities": ["default"] }
   },
-  "bundle": { "active": true, "targets": ["nsis", "msi"], "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } } }
+  "bundle": { "active": true, "targets": ["nsis"], "icon": ["icons/icon.ico"], "windows": { "webviewInstallMode": { "type": "downloadBootstrapper" } } }
 }

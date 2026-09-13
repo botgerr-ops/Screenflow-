@@ -1,4 +1,4 @@
-const SUPABASE_URL: &str = "https://eckmifmgrurxgriimgnpp.supabase.co";
+const SUPABASE_URL: &str = "https://eckmifmgrurxgriimgpp.supabase.co";
 const SUPABASE_KEY: &str = "sb_publishable_g0ktlqb7mJcLzkCysi7GCw_55uB5lmQ";
 
 #[tauri::command]

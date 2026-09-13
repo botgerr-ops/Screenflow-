@@ -1,4 +1,4 @@
-const SUPABASE_URL = "https://eckmifmgrurxgriimgnpp.supabase.co";
+const SUPABASE_URL = "https://eckmifmgrurxgriimgpp.supabase.co";
 const SUPABASE_KEY = "sb_publishable_g0ktlqb7mJcLzkCysi7GCw_55uB5lmQ";
 const STORAGE_KEY = "screenflow_manager_session";
 

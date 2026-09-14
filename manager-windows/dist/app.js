@@ -1,5 +1,6 @@
-const SUPABASE_URL = "https://eckmifmgrurxgriimgpp.supabase.co";
-const SUPABASE_KEY = "sb_publishable_g0ktlqb7mJcLzkCysi7GCw_55uB5lmQ";
+// Player 0.5 test build. Production is intentionally not used by this branch.
+const SUPABASE_URL = "https://bqapbwsvfofgnfogwhdx.supabase.co";
+const SUPABASE_KEY = "sb_publishable_Ody4k5kf_fKEZpix8QRPDQ_bE545HET";
 const STORAGE_KEY = "screenflow_manager_session";
 
 const app = document.getElementById("app");
@@ -154,11 +155,11 @@ async function loadPlayers() {
     const scope=isManager()?"":`&organization_id=eq.${encodeURIComponent(identity.organizationId)}`;
     const rows=await request(`/rest/v1/devices?select=*${scope}`);
     players=(rows||[]).map(d=>({
-      id:d.id, name:d.name||d.device_name||"Naamloze player",
-      platform:d.platform||"Android", version:d.app_version||"—",
+      id:d.id, name:d.name||d.device_name||"Naamloze player", status:d.status||"pending",
+      platform:d.platform||"Android", manufacturer:d.manufacturer||"—", model:d.model||"—", osVersion:d.os_version||"—", sdkVersion:d.sdk_version||"—", version:d.app_version||"—",
       organizationId:d.organization_id||"", code:d.pairing_code||"",
       lastSeen:d.last_seen_at||null,
-      firmware:d.firmware_version||"Niet gemeld",
+      firmware:d.firmware_version||"Niet gemeld",lastSync:d.last_sync_at||null,configRevision:d.config_revision??"—",currentPlaylist:d.current_playlist_id||"—",
       latestVersion:d.available_app_version||"",
       pendingCommand:d.pending_command||""
     }));
@@ -242,13 +243,16 @@ function renderDashboard() {
   const shown=customers.filter(c=>(c.name+c.contactName+c.email).toLowerCase().includes(query.toLowerCase()));
   const active=customers.filter(c=>c.status==="active").length, licenses=customers.reduce((n,c)=>n+c.playerLimit,0), used=players.filter(p=>p.organizationId).length;
   const selected=customers.find(c=>c.id===selectedCustomerId);
-  const title=activePage==="customer"?(selected?.name||"Klant"):activePage==="requests"?"Verzoeken":activePage==="customers"?"Klanten":`${greeting()}, ${identity.name}.`;
-  const subtitle=activePage==="customer"?"Klantgegevens, licentie, account, players en verzoeken.":activePage==="requests"?"Alle openstaande klantvragen vanuit één plek.":"Beheer klanten en playerlicenties vanuit één plek.";
-  const action=activePage==="customer"?'<button class="small-action back-button" id="back-customers">← Terug naar klanten</button>':activePage==="requests"?"":'<button class="primary" id="new-customer">＋ Nieuwe klant</button>';
-  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("requests","✉","Verzoeken",unreadManagerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header>${activePage==="overview"?`<div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>`:""}${error?`<p class="error-banner">${esc(error)}</p>`:""}${activePage==="customer"?customerDetailPanel(selected):activePage==="requests"?requestsPanel():customersPanel(shown)}</section></main><div id="modal-root"></div>`;
+  const title=activePage==="customer"?(selected?.name||"Klant"):activePage==="requests"?"Verzoeken":activePage==="customers"?"Klanten":activePage==="players"?"Players":`${greeting()}, ${identity.name}.`;
+  const subtitle=activePage==="players"?"Live playerstatus en veilige koppeling.":activePage==="customer"?"Klantgegevens, licentie, account, players en verzoeken.":activePage==="requests"?"Alle openstaande klantvragen vanuit één plek.":"Beheer klanten en playerlicenties vanuit één plek.";
+  const action=activePage==="players"?'<button class="primary" id="pair-player">＋ Player koppelen</button>':activePage==="customer"?'<button class="small-action back-button" id="back-customers">← Terug naar klanten</button>':activePage==="requests"?"":'<button class="primary" id="new-customer">＋ Nieuwe klant</button>';
+  const body=activePage==="customer"?customerDetailPanel(selected):activePage==="requests"?requestsPanel():activePage==="players"?playersPanel():customersPanel(shown);
+  app.innerHTML=`<main class="app-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${nav("overview","▦","Overzicht")}${nav("customers","▣","Klanten")}${nav("players","▰","Players")}${nav("requests","✉","Verzoeken",unreadManagerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Manageraccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">NARROWVISION ADMIN · TEST</p><h1>${title}</h1><p>${subtitle}</p></div>${action}</header>${activePage==="overview"?`<div class="stats"><article class="lime-card"><span class="stat-icon">▣</span><div><small>Actieve klanten</small><strong>${active}</strong><em>${customers.length-active} niet actief</em></div></article><article><span class="stat-icon">⌁</span><div><small>Uitgegeven licenties</small><strong>${licenses}</strong><em>${Math.max(0,licenses-used)} beschikbaar</em></div></article><article><span class="stat-icon">▰</span><div><small>Gekoppelde players</small><strong>${used}</strong><em>${players.filter(online).length} online</em></div></article></div>`:""}${error?`<p class="error-banner">${esc(error)}</p>`:""}${body}</section></main><div id="modal-root"></div>`;
   document.getElementById("logout").onclick=()=>{stopNotificationPolling();saveSession(null);identity=null;customers=[];players=[];supportRequests=[];renderLogin()};
   document.querySelectorAll("[data-page]").forEach(b=>b.onclick=async()=>{activePage=b.dataset.page;query="";error="";if(activePage==="requests")await markManagerRequestsViewed();renderDashboard()});
   document.getElementById("new-customer")?.addEventListener("click",renderModal);
+  document.getElementById("pair-player")?.addEventListener("click",renderPairPlayerModal);
+  document.querySelectorAll("[data-player-detail]").forEach(b=>b.onclick=()=>renderPlayerDetail(b.dataset.playerDetail));
   document.getElementById("back-customers")?.addEventListener("click",()=>{activePage="customers";selectedCustomerId="";error="";renderDashboard()});
   document.querySelectorAll("[data-open-customer]").forEach(row=>row.onclick=e=>{if(e.target.closest("button,input"))return;selectedCustomerId=row.dataset.openCustomer;activePage="customer";error="";renderDashboard()});
   document.getElementById("customer-admin-access")?.addEventListener("click",()=>selected&&renderAdminAccessModal(selected));
@@ -293,7 +297,7 @@ function renderCustomerDashboard(){
   app.innerHTML=`<main class="app-shell customer-shell"><aside class="sidebar"><div class="brand">${logo()}<span>SCREENFLOW<small>ADMIN</small></span></div><nav>${customerNav("overview","▦","Overzicht")}${customerNav("players","▰","Players")}${customerNav("media","▧","Media")}${customerNav("playlists","▶","Afspeellijsten")}${customerNav("planning","≡","Planning")}${customerNav("requests","✉","Verzoeken",unreadCustomerCount())}</nav><button class="logout" id="logout">↪ Uitloggen</button><div class="side-foot"><span class="shield">✓</span><div><strong>Klantaccount</strong><span>${esc(session?.user?.email||"")}</span></div></div></aside><section class="workspace"><header><div><p class="eyebrow">SCREENFLOW ADMIN · ${esc(pageTitle.toUpperCase())}</p><h1>${heading}</h1><p>${esc(title)} · ${esc(customer?.customerNumber||"")}</p></div></header>${error?`<p class="error-banner customer-error">${esc(error)}</p>`:""}${content}</section></main><div id="modal-root"></div>`;
   document.getElementById("logout").onclick=()=>{stopNotificationPolling();saveSession(null);identity=null;customerPage="overview";customers=[];players=[];supportRequests=[];renderLogin()};
   document.querySelectorAll("[data-customer-page]").forEach(button=>button.onclick=async()=>{customerPage=button.dataset.customerPage;error="";if(customerPage==="requests")await markCustomerRequestsViewed();renderCustomerDashboard()});
-  document.getElementById("customer-pair-player")?.addEventListener("click",()=>{error="Playerkoppeling wordt aangesloten zodra de Android-testplayer beschikbaar is.";renderCustomerDashboard()});
+  document.getElementById("customer-pair-player")?.addEventListener("click",()=>{error="Players worden in deze testfase uitsluitend door een manager gekoppeld.";renderCustomerDashboard()});
   document.getElementById("new-request")?.addEventListener("click",renderNewRequestModal);
   document.querySelectorAll("[data-customer-reply]").forEach(button=>button.onclick=()=>renderCustomerReplyModal(button.dataset.customerReply));
   bindTicketFolders();
@@ -454,13 +458,30 @@ async function createAdminAccess(event,c){
 }
 
 function playersPanel(){
-  const shown=players.filter(p=>(p.name+p.platform+p.version+p.code).toLowerCase().includes(query.toLowerCase()));
-  return `<section class="panel"><div class="panel-head"><div><h2>Players</h2><p>Status, versie en bediening op afstand.</p></div><label class="search">⌕<input id="search" value="${esc(query)}" placeholder="Zoek player"></label></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Klant</th><th>Status</th><th>Versie</th><th>Acties</th></tr></thead><tbody>${shown.length?shown.map(playerRow).join(""):'<tr><td colspan="5" class="empty">Nog geen players geregistreerd. Open ScreenFlow Player om een koppelcode te krijgen.</td></tr>'}</tbody></table></div></section>`;
+  const shown=players.filter(p=>(p.name+p.platform+p.version+p.manufacturer+p.model).toLowerCase().includes(query.toLowerCase()));
+  return `<section class="panel"><div class="panel-head"><div><h2>Players</h2><p>${players.filter(online).length} online · online wanneer heartbeat jonger is dan 90 seconden.</p></div><label class="search">⌕<input id="search" value="${esc(query)}" placeholder="Zoek player"></label></div><div class="table-wrap"><table><thead><tr><th>Player</th><th>Klant</th><th>Status</th><th>Hardware</th><th>OS / app</th><th>Laatste contact</th><th></th></tr></thead><tbody>${shown.length?shown.map(playerRow).join(""):'<tr><td colspan="7" class="empty">Nog geen players geregistreerd. Open NarrowVision Player om een koppelcode te krijgen.</td></tr>'}</tbody></table></div></section>`;
 }
 function playerRow(p){
   const customer=customers.find(c=>c.id===p.organizationId);
-  return `<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}${p.code?` · code ${esc(p.code)}`:""}</small></div></div></td><td>${customer?esc(customer.name):'<span class="muted">Niet gekoppeld</span>'}</td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":"Offline"}</span><small class="last-seen">${fmt(p.lastSeen)}</small></td><td>${esc(p.version)}</td><td><div class="actions"><button class="small-action" data-player="${esc(p.id)}" data-command="sync">Synchroniseer</button><button class="small-action" data-player="${esc(p.id)}" data-command="update">Update app</button>${p.pendingCommand?`<small class="pending">Wacht op: ${esc(p.pendingCommand)}</small>`:""}</div></td></tr>`;
+  return `<tr><td><div class="customer"><span>▶</span><div><strong>${esc(p.name)}</strong><small>${esc(p.platform)}${p.status==="pending"&&p.code?` · code ${esc(p.code)}`:""}</small></div></div></td><td>${customer?esc(customer.name):'<span class="muted">Niet gekoppeld</span>'}</td><td><span class="status ${online(p)?"active":"blocked"}">${online(p)?"Online":p.status==="pending"?"Wacht op koppeling":"Offline"}</span></td><td>${esc(p.manufacturer)} ${esc(p.model)}</td><td>${esc(p.osVersion)} · ${esc(p.version)}</td><td>${fmt(p.lastSeen)}</td><td><button class="small-action" data-player-detail="${esc(p.id)}">Details</button></td></tr>`;
 }
+
+function pairError(message){
+  const text=String(message||"");
+  if(/verlopen/i.test(text))return "Deze pairingcode is verlopen. Laat de player een nieuwe code tonen.";
+  if(/al gebruikt|niet gevonden/i.test(text))return "Deze pairingcode bestaat niet of is al gebruikt.";
+  if(/licentie/i.test(text))return "Koppelen geweigerd: de licentielimiet of licentiestatus staat dit niet toe.";
+  if(/rechten|permission|401|403/i.test(text))return "Je hebt onvoldoende rechten om deze player te koppelen.";
+  if(/network|verbinding/i.test(text))return "Netwerkprobleem. Controleer de verbinding en probeer opnieuw.";
+  return "Koppelen mislukt. Controleer de code en probeer opnieuw.";
+}
+function renderPairPlayerModal(){
+  const options=customers.filter(c=>c.status==="active"&&new Date(c.expiresAt+"T23:59:59")>=new Date()).map(c=>`<option value="${esc(c.id)}">${esc(c.name)} (${c.playersUsed}/${c.playerLimit})</option>`).join("");
+  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="pair-player-form"><div class="modal-title"><div><p class="eyebrow">PLAYER KOPPELEN</p><h2>Nieuwe NarrowVision player</h2></div><button type="button" id="close">×</button></div><label>Pairingcode<input id="pair-code" required maxlength="32" autocomplete="off" placeholder="ABCD-EFGH-JKLM"></label><label>Klant<select id="pair-organization" required><option value="">Kies klant</option>${options}</select></label><label>Playernaam<input id="pair-name" required maxlength="160" placeholder="Bijv. Entree scherm"></label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="pair-submit">Koppelen</button></div></form></div>`;
+  const close=()=>document.getElementById("modal-root").innerHTML="";document.getElementById("close").onclick=close;document.getElementById("cancel").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};document.getElementById("pair-player-form").onsubmit=submitPairPlayer;
+}
+async function submitPairPlayer(event){event.preventDefault();const button=document.getElementById("pair-submit");button.disabled=true;button.textContent="Koppelen…";try{const code=document.getElementById("pair-code").value.trim().replace(/\s+/g,"");const organizationId=document.getElementById("pair-organization").value;const name=document.getElementById("pair-name").value.trim();if(code.length<4)throw new Error("Vul een geldige pairingcode in.");await request("/rest/v1/rpc/manager_pair_player",{method:"POST",body:JSON.stringify({code,organization_id:organizationId,name})});document.getElementById("modal-root").innerHTML="";await Promise.all([loadPlayers(),loadCustomers()]);activePage="players";renderDashboard();}catch(e){const p=document.getElementById("modal-error");p.textContent=pairError(e?.message||e);p.classList.remove("hidden");button.disabled=false;button.textContent="Koppelen";}}
+function renderPlayerDetail(id){const p=players.find(x=>x.id===id);if(!p)return;const customer=customers.find(c=>c.id===p.organizationId);document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><div class="modal"><div class="modal-title"><div><p class="eyebrow">PLAYERDETAIL</p><h2>${esc(p.name)}</h2></div><button id="close">×</button></div><dl><dt>Klant</dt><dd>${esc(customer?.name||"Niet gekoppeld")}</dd><dt>Status</dt><dd>${online(p)?"Online":"Offline"}</dd><dt>Platform</dt><dd>${esc(p.platform)}</dd><dt>Hardware</dt><dd>${esc(p.manufacturer)} ${esc(p.model)}</dd><dt>OS / SDK</dt><dd>${esc(p.osVersion)} / ${esc(p.sdkVersion)}</dd><dt>Firmware / build</dt><dd>${esc(p.firmware)}</dd><dt>Appversie</dt><dd>${esc(p.version)}</dd><dt>Laatste heartbeat</dt><dd>${fmt(p.lastSeen)}</dd><dt>Laatste sync</dt><dd>${fmt(p.lastSync)}</dd><dt>Config revision</dt><dd>${esc(p.configRevision)}</dd><dt>Current playlist</dt><dd>${esc(p.currentPlaylist)}</dd><dt>Player ID</dt><dd class="code-value">${esc(p.id)}</dd></dl><div class="modal-actions"><button class="primary" id="close-detail">Sluiten</button></div></div></div>`;const close=()=>document.getElementById("modal-root").innerHTML="";document.getElementById("close").onclick=close;document.getElementById("close-detail").onclick=close;document.getElementById("modal-bg").onclick=e=>{if(e.target.id==="modal-bg")close()};}
 
 function rowHtml(c) { const pct=c.playerLimit?Math.min(100,c.playersUsed/c.playerLimit*100):0;return `<tr data-open-customer="${esc(c.id)}" class="clickable-row"><td><div class="customer"><span>${esc(c.name.slice(0,2).toUpperCase())}</span><div><strong>${esc(c.name)}</strong><small>${esc(c.contactName)} · ${esc(c.email)}</small></div></div></td><td><button data-status="${esc(c.status)}" data-id="${esc(c.licenseId)}" class="status ${esc(c.status)}">${c.status==="active"?"Actief":"Geblokkeerd"}</button></td><td><strong>${c.playersUsed} / ${c.playerLimit}</strong><div class="meter"><i style="width:${pct}%"></i></div></td><td><div class="date-editor"><input class="license-date" data-date-input="${esc(c.licenseId)}" value="${esc(dateForInput(c.expiresAt))}" placeholder="dd-mm-jjjj" maxlength="10" inputmode="numeric" aria-label="Geldig tot"><button class="small-action" data-save-date="${esc(c.licenseId)}">Opslaan</button></div></td><td><button class="small-action" data-extend="${esc(c.licenseId)}">+1 jaar</button></td></tr>`; }
 async function saveLicenseDate(id) {
@@ -512,4 +533,3 @@ async function createCustomer(event) {
 
 async function start() { if(!session){renderLogin();return} await bootAuthenticated(); }
 start();
-

@@ -1,7 +1,8 @@
 use base64::Engine as _;
 
-const SUPABASE_URL: &str = "https://eckmifmgrurxgriimgpp.supabase.co";
-const SUPABASE_KEY: &str = "sb_publishable_g0ktlqb7mJcLzkCysi7GCw_55uB5lmQ";
+// Player 0.5 test target. Release production configuration remains a separate build concern.
+const SUPABASE_URL: &str = "https://bqapbwsvfofgnfogwhdx.supabase.co";
+const SUPABASE_KEY: &str = "sb_publishable_Ody4k5kf_fKEZpix8QRPDQ_bE545HET";
 
 #[tauri::command]
 async fn supabase_request(

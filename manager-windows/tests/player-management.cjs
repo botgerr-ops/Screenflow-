@@ -1,0 +1,10 @@
+const assert=require('assert');
+const online=p=>Boolean(p.lastSeen)&&Date.now()-new Date(p.lastSeen).getTime()>=0&&Date.now()-new Date(p.lastSeen).getTime()<90000;
+const pairError=message=>/verlopen/i.test(String(message))?"expired":/al gebruikt|niet gevonden/i.test(String(message))?"invalid":/licentie/i.test(String(message))?"license":/rechten|permission|401|403/i.test(String(message))?"rights":"generic";
+assert.equal(online({lastSeen:new Date(Date.now()-89_000).toISOString()}),true);
+assert.equal(online({lastSeen:new Date(Date.now()-91_000).toISOString()}),false);
+assert.equal(pairError('Koppelcode is verlopen'),'expired');
+assert.equal(pairError('Koppelcode niet gevonden of al gebruikt'),'invalid');
+assert.equal(pairError('Alle playerlicenties van deze klant zijn in gebruik'),'license');
+assert.equal(pairError('Geen managerrechten'),'rights');
+console.log('player-management: ok');

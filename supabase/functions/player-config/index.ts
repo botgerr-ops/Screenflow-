@@ -10,11 +10,17 @@ Deno.serve(async (req) => {
     const { data: license, error: licenseError } = await admin.from("licenses").select("status,valid_until")
       .eq("organization_id", player.organization_id).eq("status", "active").gte("valid_until", today).maybeSingle();
     if (licenseError || !license) throw new HttpError(403, "license_inactive", "Licentie is niet actief");
-    const { data: schedules, error: scheduleError } = await admin.from("content_schedules")
+    const { data: assignments, error: assignmentError } = await admin.from("player_playlist_assignments")
+      .select("playlist_id").eq("device_id", player.id);
+    if (assignmentError) throw assignmentError;
+    const assignedPlaylistIds = [...new Set((assignments || []).map((a) => a.playlist_id))];
+    const scheduleResult = assignedPlaylistIds.length ? await admin.from("content_schedules")
       .select("id,playlist_id,name,days_of_week,start_time,end_time,timezone,active,updated_at")
-      .eq("organization_id", player.organization_id).eq("active", true).order("start_time");
-    if (scheduleError) throw scheduleError;
-    const playlistIds = [...new Set((schedules || []).map((s) => s.playlist_id))];
+      .eq("organization_id", player.organization_id).eq("active", true).in("playlist_id", assignedPlaylistIds).order("start_time")
+      : { data: [], error: null };
+    if (scheduleResult.error) throw scheduleResult.error;
+    const schedules = scheduleResult.data || [];
+    const playlistIds = [...new Set(schedules.map((s) => s.playlist_id))];
     const playlistResult = playlistIds.length ? await admin.from("playlists").select("id,name,updated_at")
       .eq("organization_id", player.organization_id).in("id", playlistIds) : { data: [], error: null };
     if (playlistResult.error) throw playlistResult.error;

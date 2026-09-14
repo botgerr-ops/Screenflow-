@@ -32,4 +32,9 @@ assert.equal(badSecret.status, 401);
 const pendingConfig = await call("player-config", {}, auth);
 assert.equal(pendingConfig.status, 403);
 
-console.log(JSON.stringify({ bootstrap: bootstrap.status, heartbeat: heartbeat.status, bad_secret: badSecret.status, pending_config: pendingConfig.status }));
+const second = await call("player-bootstrap", { device_uid: `integration-${crypto.randomUUID()}`, platform: "test", manufacturer: "NarrowVision", model: "Isolation" });
+assert.equal(second.status, 201);
+const crossPlayer = await call("player-heartbeat", {}, { "X-Player-Id": second.body.player_id, "X-Player-Secret": bootstrap.body.player_secret });
+assert.equal(crossPlayer.status, 401);
+
+console.log(JSON.stringify({ bootstrap: bootstrap.status, heartbeat: heartbeat.status, bad_secret: badSecret.status, pending_config: pendingConfig.status, cross_player_isolation: crossPlayer.status }));

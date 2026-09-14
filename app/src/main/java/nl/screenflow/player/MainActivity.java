@@ -7,6 +7,7 @@ import android.media.MediaPlayer;
 import android.net.Uri;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
@@ -35,13 +36,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** TEST player: authenticated config polling, private media cache and scheduled fullscreen playback. */
 public class MainActivity extends Activity {
   private static final long HEARTBEAT_MS=30_000L, RETRY_MIN_MS=10_000L;
   private final Handler handler=new Handler(Looper.getMainLooper());
-  private final ExecutorService network=Executors.newSingleThreadExecutor(); private final AtomicBoolean syncRunning=new AtomicBoolean(false); private ConnectivityManager connectivity; private ConnectivityManager.NetworkCallback networkCallback;
+  private final ExecutorService network=Executors.newSingleThreadExecutor(); private final SyncGate syncGate=new SyncGate(); private ConnectivityManager connectivity; private ConnectivityManager.NetworkCallback networkCallback; private boolean networkValidated;
   private PlayerIdentityStore identity; private PlayerApiClient api; private MediaCache cache; private PlayerStateStore state;
   private TextView status,detail,networkStatus; private long configRevision=0,retryDelay=RETRY_MIN_MS;
   private boolean activeScreen=false, syncSucceeded=false; private String currentPlaylistId=null, playbackFingerprint="";
@@ -58,10 +58,19 @@ public class MainActivity extends Activity {
   @Override protected void onCreate(Bundle state){
     super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
     identity=new PlayerIdentityStore(this);api=new PlayerApiClient(identity);cache=new MediaCache(this);state=new PlayerStateStore(this);
-    showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();connectivity=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);networkCallback=new ConnectivityManager.NetworkCallback(){@Override public void onAvailable(Network n){handler.post(()->{retryDelay=RETRY_MIN_MS;sync();});}};connectivity.registerDefaultNetworkCallback(networkCallback);handler.post(cycle);handler.postDelayed(planningTick,15000L);
+    showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();
+    connectivity=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);networkValidated=isNetworkValidated();
+    networkCallback=new ConnectivityManager.NetworkCallback(){
+      @Override public void onCapabilitiesChanged(Network n,NetworkCapabilities capabilities){boolean validated=capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);handler.post(()->updateNetworkState(validated));}
+      @Override public void onLost(Network n){handler.post(()->updateNetworkState(false));}
+    };
+    connectivity.registerDefaultNetworkCallback(networkCallback);handler.post(cycle);handler.postDelayed(planningTick,15000L);
   }
 
-  private void sync(){if(!syncRunning.compareAndSet(false,true))return;network.execute(()->{try{
+  private boolean isNetworkValidated(){Network active=connectivity.getActiveNetwork();if(active==null)return false;NetworkCapabilities capabilities=connectivity.getNetworkCapabilities(active);return capabilities!=null&&capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);}
+  private void updateNetworkState(boolean validated){boolean recovered=!networkValidated&&validated;networkValidated=validated;if(recovered){retryDelay=RETRY_MIN_MS;handler.removeCallbacks(cycle);sync();}}
+  private void sync(){syncGate.request(network,this::performSync);}
+  private void performSync(){try{
     JSONObject response;
     if(!identity.hasCredentials()){
       response=api.bootstrap();identity.saveCredentials(response.getString("player_id"),response.getString("player_secret"));
@@ -75,8 +84,8 @@ public class MainActivity extends Activity {
     }
     retryDelay=RETRY_MIN_MS;schedule(HEARTBEAT_MS);
   }catch(PlayerApiClient.ApiException e){if(e.status==401){identity.clearCredentials();state.clear();showPairingScreen("Playeridentiteit moet opnieuw worden gekoppeld.");}else{restoreOfflineSnapshot();showNetworkError("Verbinding tijdelijk niet beschikbaar.");}scheduleRetry();}
-    catch(Exception e){syncSucceeded=false;restoreOfflineSnapshot();showNetworkError("Geen verbinding. Afspelen uit cache blijft actief.");scheduleRetry();} finally {syncRunning.set(false);}
-  });}
+    catch(Exception e){syncSucceeded=false;restoreOfflineSnapshot();showNetworkError("Geen verbinding. Afspelen uit cache blijft actief.");scheduleRetry();}
+  }
 
   private void applyConfig(JSONObject config) throws Exception {
     JSONObject manifest=config.optJSONObject("manifest");

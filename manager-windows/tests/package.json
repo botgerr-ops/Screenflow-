@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node ticket-archive.mjs && node interface.cjs"
+    "test": "node ticket-archive.mjs && node player-management.cjs && node interface.cjs && node planning.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",

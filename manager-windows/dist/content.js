@@ -1,6 +1,7 @@
 let mediaItems = [];
 let playlists = [];
 let contentSchedules = [];
+let contentAssignments = [];
 let contentBusy = false;
 
 function storageRoute(path){
@@ -24,8 +25,8 @@ async function signedMediaUrl(path){
   }catch{return ""}
 }
 async function loadContentData(){
-  if(isManager()){mediaItems=[];playlists=[];contentSchedules=[];return}
-  await Promise.all([loadMediaItems(),loadPlaylists(),loadContentSchedules()]);
+  if(isManager()){mediaItems=[];playlists=[];contentSchedules=[];contentAssignments=[];return}
+  await Promise.all([loadMediaItems(),loadPlaylists(),loadContentSchedules(),loadContentAssignments()]);
 }
 async function loadMediaItems(){
   try{
@@ -46,6 +47,10 @@ async function loadContentSchedules(){
     const rows=await request("/rest/v1/content_schedules?select="+select+"&organization_id=eq."+encodeURIComponent(identity.organizationId)+"&order=created_at.desc");
     contentSchedules=rows||[];
   }catch{contentSchedules=[]}
+}
+async function loadContentAssignments(){
+  try{contentAssignments=await request("/rest/v1/player_playlist_assignments?select=device_id,playlist_id")||[]}
+  catch{contentAssignments=[]}
 }
 function mediaKind(item){return String(item.mime_type||"").startsWith("video/")?"Video":"Afbeelding"}
 function mediaPreview(item){
@@ -76,7 +81,8 @@ function bindContentPage(){
   document.querySelectorAll("[data-edit-playlist]").forEach(b=>b.onclick=()=>renderPlaylistModal(b.dataset.editPlaylist));
   document.querySelectorAll("[data-delete-playlist]").forEach(b=>b.onclick=()=>deletePlaylist(b.dataset.deletePlaylist));
   document.getElementById("new-schedule")?.addEventListener("click",renderScheduleModal);
-  document.querySelectorAll("[data-edit-schedule]").forEach(b=>b.onclick=()=>renderScheduleModal(contentSchedules.find(s=>s.id===b.dataset.editSchedule)));\n  document.querySelectorAll("[data-toggle-schedule]").forEach(b=>b.onclick=()=>toggleSchedule(b.dataset.toggleSchedule));
+  document.querySelectorAll("[data-edit-schedule]").forEach(b=>b.onclick=()=>renderScheduleModal(contentSchedules.find(s=>s.id===b.dataset.editSchedule)));
+  document.querySelectorAll("[data-toggle-schedule]").forEach(b=>b.onclick=()=>toggleSchedule(b.dataset.toggleSchedule));
   document.querySelectorAll("[data-delete-schedule]").forEach(b=>b.onclick=()=>deleteSchedule(b.dataset.deleteSchedule));
 }
 async function fileToBase64(file){
@@ -194,7 +200,11 @@ async function deletePlaylist(id){
     await Promise.all([loadPlaylists(),loadContentSchedules()]);renderCustomerDashboard();
   }catch(e){error="Afspeellijst verwijderen mislukt: "+contentErrorMessage(e);renderCustomerDashboard()}
 }
-function scheduleConflict(candidate,excludeId=null){return contentSchedules.find(s=>s.id!==excludeId&&s.active&&candidate.active&&(s.days_of_week||[]).some(day=>(candidate.days||[]).includes(day))&&s.start_time<candidate.end&&candidate.start<s.end_time);}
+function assignedPlayers(playlistId){return new Set(contentAssignments.filter(a=>a.playlist_id===playlistId).map(a=>a.device_id))}
+function scheduleConflict(candidate,excludeId=null){
+ const candidatePlayers=assignedPlayers(candidate.playlist_id);if(!candidate.active||!candidatePlayers.size)return null;
+ return contentSchedules.find(s=>{const otherStart=shortTime(s.start_time),otherEnd=shortTime(s.end_time);if(s.id===excludeId||!s.active||!(s.days_of_week||[]).some(day=>(candidate.days||[]).includes(day))||!(otherStart<candidate.end&&candidate.start<otherEnd))return false;return [...assignedPlayers(s.playlist_id)].some(id=>candidatePlayers.has(id))});
+}
 function renderScheduleModal(existing=null){
  const selected=new Set(existing?.days_of_week||[1,2,3,4,5]);
  document.getElementById("modal-root").innerHTML=`<div class="modal-bg" id="modal-bg"><form class="modal" id="schedule-form"><div class="modal-title"><div><p class="eyebrow">${existing?"PLANNING BEWERKEN":"NIEUWE PLANNING"}</p><h2>Wanneer moet hij spelen?</h2></div><button type="button" id="close">×</button></div><label>Naam<input id="schedule-name" maxlength="120" required value="${esc(existing?.name||"")}"></label><label>Afspeellijst<select id="schedule-playlist">${playlists.map(p=>`<option value="${esc(p.id)}" ${p.id===existing?.playlist_id?"selected":""}>${esc(p.name)}</option>`).join("")}</select></label><fieldset class="weekday-field"><legend>Dagen</legend><div class="weekday-grid">${DAY_NAMES.map((name,day)=>`<label><input type="checkbox" name="schedule-day" value="${day}" ${selected.has(day)?"checked":""}><span>${name}</span></label>`).join("")}</div></fieldset><div class="form-row"><label>Begintijd<input id="schedule-start" type="time" value="${shortTime(existing?.start_time||"08:00")}" required></label><label>Eindtijd<input id="schedule-end" type="time" value="${shortTime(existing?.end_time||"18:00")}" required></label></div><label class="check-row"><input id="schedule-active" type="checkbox" ${existing?existing.active?"checked":"":"checked"}> Actief</label><p class="login-error hidden" id="modal-error"></p><div class="modal-actions"><button type="button" id="cancel">Annuleren</button><button class="primary" id="schedule-create">Opslaan</button></div></form></div>`;
@@ -208,6 +218,7 @@ async function saveSchedule(e,existing){
 async function toggleSchedule(id){
   const schedule=contentSchedules.find(s=>s.id===id);if(!schedule)return;
   try{
+    if(!schedule.active){const conflict=scheduleConflict({...schedule,active:true,days:schedule.days_of_week},schedule.id);if(conflict)throw new Error("Planningconflict: "+(conflict.playlists?.name||"een andere playlist")+" overlapt deze periode op dezelfde player.")}
     await request("/rest/v1/content_schedules?id=eq."+encodeURIComponent(id),{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({active:!schedule.active,updated_at:new Date().toISOString()})});
     await loadContentSchedules();renderCustomerDashboard();
   }catch(e){error="Planning wijzigen mislukt: "+contentErrorMessage(e);renderCustomerDashboard()}

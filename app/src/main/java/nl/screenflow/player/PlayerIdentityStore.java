@@ -33,7 +33,8 @@ public final class PlayerIdentityStore {
     public String pairingExpiresAt() { return prefs.getString("pairing_expires_at", null); }
     public void savePairing(String code, String expiresAt) { prefs.edit().putString("pairing_code", code).putString("pairing_expires_at", expiresAt).apply(); }
     public void clearPairing() { prefs.edit().remove("pairing_code").remove("pairing_expires_at").apply(); }
-    public boolean hasCredentials() { return playerId() != null && secret() != null; }\n    public void clearCredentials() { prefs.edit().remove("player_id").remove("secret").remove("pairing_code").remove("pairing_expires_at").apply(); }
+    public boolean hasCredentials() { return playerId() != null && secret() != null; }
+    public void clearCredentials() { prefs.edit().remove("player_id").remove("secret").remove("pairing_code").remove("pairing_expires_at").apply(); }
     public void saveCredentials(String playerId, String secret) throws Exception {
         prefs.edit().putString("player_id", playerId).putString("secret", encrypt(secret)).apply();
     }

@@ -95,7 +95,7 @@ public class MainActivity extends Activity {
     String fingerprint=playlistId+"|"+fingerprint(next);
     currentPlaylistId=playlistId;
     if(fingerprint.equals(playbackFingerprint)&&!queue.isEmpty())return;
-    playbackFingerprint=fingerprint;queue.clear();queue.addAll(next);queueIndex=0;handler.post(this::startPlayback);
+    playbackFingerprint=fingerprint;queue.clear();queue.addAll(next);queueIndex=0;handler.post(()->{showActiveState();handler.post(this::startPlayback);});
   }
 
   private JSONObject activeSchedule(JSONArray schedules){

@@ -114,5 +114,22 @@ revoke all on function public.guard_archived_ticket_message() from public,anon,a
 revoke all on function public.guard_screenflow_ticket() from public,anon,authenticated;
 revoke all on function public.next_screenflow_customer_number() from public,anon,authenticated;
 
+-- Fresh Supabase projects grant EXECUTE to PUBLIC by default. Make the intended
+-- application RPC boundary explicit while retaining authenticated access where
+-- each RPC performs its own authorization checks.
+revoke all on function public.current_screenflow_identity() from public,anon;
+revoke all on function public.customer_confirm_support_request(uuid) from public,anon;
+revoke all on function public.customer_mark_requests_viewed() from public,anon;
+revoke all on function public.customer_reply_to_request(uuid,text) from public,anon;
+revoke all on function public.is_manager() from public,anon;
+revoke all on function public.manager_create_customer(text,text,text,integer,date) from public,anon;
+revoke all on function public.manager_mark_requests_viewed() from public,anon;
+revoke all on function public.manager_reply_to_request(uuid,text,text) from public,anon;
+revoke all on function public.manager_update_customer(uuid,text,text,text,text,text,text,text,text) from public,anon;
+revoke all on function public.manager_update_license(uuid,text,date) from public,anon;
+revoke all on function public.manager_update_support_request(uuid,text,text) from public,anon;
+revoke all on function public.screenflow_media_dependencies(uuid) from public,anon;
+revoke all on function public.screenflow_operational_summary(uuid) from public,anon;
+
 comment on table public.player_commands is 'Server-managed command queue. Players access this only through future authenticated Edge Functions.';
 comment on column public.devices.player_secret_hash is 'Hash only; the plaintext player secret is returned once by a future bootstrap Edge Function.';

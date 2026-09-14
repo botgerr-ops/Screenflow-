@@ -1,9 +1,7 @@
 package nl.screenflow.player;
 
 import android.os.Build;
-
 import org.json.JSONObject;
-
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -18,14 +16,20 @@ public final class PlayerApiClient {
     private final PlayerIdentityStore store;
     public PlayerApiClient(PlayerIdentityStore store) { this.store = store; }
     public JSONObject bootstrap() throws Exception { return post("player-bootstrap", metadata(), false); }
-    public JSONObject heartbeat(long revision) throws Exception { JSONObject body = metadata(); body.put("config_revision", revision); return post("player-heartbeat", body, true); }
+    public JSONObject heartbeat(long revision, boolean syncSucceeded, String playlistId) throws Exception {
+        JSONObject body = metadata();
+        body.put("config_revision", revision);
+        body.put("sync_succeeded", syncSucceeded);
+        if (playlistId == null) body.put("current_playlist_id", JSONObject.NULL); else body.put("current_playlist_id", playlistId);
+        return post("player-heartbeat", body, true);
+    }
     public JSONObject config() throws Exception { return post("player-config", new JSONObject(), true); }
     private JSONObject metadata() throws Exception {
         JSONObject body = new JSONObject();
         body.put("device_uid", store.deviceUid()); body.put("platform", "android");
         body.put("manufacturer", safe(Build.MANUFACTURER)); body.put("model", safe(Build.MODEL));
         body.put("os_version", safe(Build.VERSION.RELEASE)); body.put("sdk_version", Build.VERSION.SDK_INT);
-        body.put("firmware_version", safe(Build.DISPLAY)); body.put("app_version", "0.5.0"); return body;
+        body.put("firmware_version", safe(Build.DISPLAY)); body.put("app_version", "0.5.1-test"); return body;
     }
     private String safe(String value) { return value == null ? "unknown" : value.trim(); }
     private JSONObject post(String route, JSONObject body, boolean authenticate) throws Exception {

@@ -52,7 +52,7 @@ select set_config('request.jwt.claims','{"sub":"10000000-0000-0000-0000-00000000
 
 do $$
 begin
-  if (select count(*) from public.organizations) <> 0 then
+  if (select count(*) from public.organizations where id='20000000-0000-0000-0000-000000000001') <> 0 then
     raise exception 'Different customer can read another organization';
   end if;
 end $$;

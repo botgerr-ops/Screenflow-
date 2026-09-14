@@ -10,6 +10,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Downloads signed media URLs into private app storage. Files are only replaced when server metadata changes. */
 public final class MediaCache {

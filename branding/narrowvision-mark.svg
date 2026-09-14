@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">NarrowVision beeldmerk</title>
+  <defs>
+    <linearGradient id="narrowvision-gradient" x1="88" y1="86" x2="425" y2="433" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#557DFF"/>
+      <stop offset=".52" stop-color="#7B35FF"/>
+      <stop offset="1" stop-color="#D347F5"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0C0E14"/>
+  <path fill="url(#narrowvision-gradient)" d="M100 113c0-20 23-31.5 39-19.5L334 240v-73c0-9 5-17 13-21l72-36c16-8 35 3.5 35 21v290c0 20-23 31.5-39 19.5L220 294v75c0 9-5 17-13 21l-72 36c-16 8-35-3.5-35-21V113Zm0 0 354 266v-86L100 113Z"/>
+</svg>

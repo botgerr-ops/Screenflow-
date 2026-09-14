@@ -90,5 +90,5 @@ pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![supabase_request, supabase_upload])
     .run(tauri::generate_context!())
-    .expect("ScreenFlow Admin kon niet worden gestart");
+    .expect("NarrowVision Admin kon niet worden gestart");
 }

@@ -1,6 +1,6 @@
-# ScreenFlow Player for Android
+# NarrowVision Player for Android
 
-Native Android shell for the ScreenFlow narrowcasting player.
+Native Android shell for the NarrowVision narrowcasting player.
 
 ## Test target
 
@@ -10,7 +10,7 @@ Native Android shell for the ScreenFlow narrowcasting player.
 
 ## First run
 
-The app registers itself with ScreenFlow and shows a six-digit pairing code. In the ScreenFlow dashboard, open **Schermen**, choose **Android-player koppelen**, enter the code and select a screen. The player then opens the assigned fullscreen playlist.
+The app registers itself with NarrowVision and shows a six-digit pairing code. In the NarrowVision dashboard, open **Schermen**, choose **Android-player koppelen**, enter the code and select a screen. The player then opens the assigned fullscreen playlist.
 
 ## Build
 

@@ -90,7 +90,7 @@ public class MainActivity extends Activity {
         layout.setBackgroundColor(Color.rgb(16, 17, 20));
         ImageView mark = brandedMark(154);
         LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(dp(154), dp(154));
-        TextView name = label("SCREENFLOW", 24, Color.rgb(242, 255, 98));
+        TextView name = label("NARROWVISION", 24, Color.rgb(180, 68, 244));
         name.setLetterSpacing(.18f);
         name.setPadding(0, dp(22), 0, 0);
         TextView subtitle = label("DIGITAL SIGNAGE PLAYER", 12, Color.rgb(135, 137, 143));
@@ -121,7 +121,7 @@ public class MainActivity extends Activity {
         animateSplash(mark);
         handler.postDelayed(() -> startupStatus.setText("VERBINDING CONTROLEREN"), 5000);
         handler.postDelayed(() -> startupStatus.setText("CONTENT KLAARZETTEN"), 10000);
-        handler.postDelayed(() -> startupStatus.setText("SCREENFLOW STARTEN"), 15000);
+        handler.postDelayed(() -> startupStatus.setText("NARROWVISION STARTEN"), 15000);
     }
 
     private ImageView brandedMark(int size) {
@@ -129,7 +129,7 @@ public class MainActivity extends Activity {
         mark.setImageResource(R.drawable.ic_launcher_foreground);
         mark.setPadding(dp(12), dp(12), dp(12), dp(12));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.rgb(242, 255, 98));
+        background.setColor(Color.rgb(12, 14, 20));
         background.setCornerRadius(dp(size / 5));
         mark.setBackground(background);
         return mark;

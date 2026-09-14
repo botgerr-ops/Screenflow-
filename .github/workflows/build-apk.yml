@@ -1,4 +1,4 @@
-name: Build ScreenFlow APK
+name: Build NarrowVision APK
 
 # Permanent signing enabled
 
@@ -40,8 +40,8 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: screenflow-player-apk
+          name: narrowvision-player-apk
           path: app/build/outputs/apk/**/*.apk
 
-# Permanent ScreenFlow release signing
+# Permanent NarrowVision release signing
 # Signing retry after secret correction

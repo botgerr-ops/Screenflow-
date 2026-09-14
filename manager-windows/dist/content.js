@@ -24,8 +24,9 @@ async function signedMediaUrl(path){
   }catch{return ""}
 }
 async function loadContentData(){
+  await loadOperationalData();
   if(isManager()){mediaItems=[];playlists=[];contentSchedules=[];return}
-  await Promise.all([loadMediaItems(),loadPlaylists(),loadContentSchedules()]);
+  await Promise.all([loadMediaItems(),loadPlaylists(),loadContentSchedules(),loadOperationalData()]);
 }
 async function loadMediaItems(){
   try{
@@ -54,7 +55,7 @@ function mediaPreview(item){
   return `<img loading="lazy" src="${esc(item.signed_url)}" alt="${esc(item.name)}">`;
 }
 function customerMediaPage(){
-  return `<section class="panel content-panel"><div class="panel-head"><div><h2>Media</h2><p>${mediaItems.length} bestand${mediaItems.length===1?"":"en"} · afbeeldingen en video's</p></div><div><input class="hidden" id="media-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"><button class="primary" id="upload-media" ${contentBusy?"disabled":""}>＋ Media uploaden</button></div></div>${mediaItems.length?`<div class="media-grid">${mediaItems.map(item=>`<article class="media-card"><div class="media-preview">${mediaPreview(item)}</div><div class="media-meta"><strong title="${esc(item.name)}">${esc(item.name)}</strong><small>${mediaKind(item)} · ${fileSize(Number(item.size_bytes||0))}</small><div class="media-actions"><button class="small-action" data-preview-media="${esc(item.id)}">Openen</button><button class="small-action" data-rename-media="${esc(item.id)}">Hernoemen</button><button class="small-action danger" data-delete-media="${esc(item.id)}">Verwijderen</button></div></div></article>`).join("")}</div>`:'<div class="empty">Nog geen media. Upload je eerste afbeelding of video.</div>'}</section>`;
+  return `<section class="panel content-panel"><div class="panel-head"><div><h2>Media</h2><p>${mediaItems.length} bestand${mediaItems.length===1?"":"en"} · afbeeldingen en video's</p></div><div><input class="hidden" id="media-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm,video/quicktime"><button class="primary" id="upload-media" ${contentBusy?"disabled":""}>＋ Media uploaden</button></div></div>${storageUsageHtml()}${mediaItems.length?`<div class="media-grid">${mediaItems.map(item=>`<article class="media-card"><div class="media-preview">${mediaPreview(item)}</div><div class="media-meta"><strong title="${esc(item.name)}">${esc(item.name)}</strong><small>${mediaKind(item)} · ${fileSize(Number(item.size_bytes||0))}</small><div class="media-actions"><button class="small-action" data-preview-media="${esc(item.id)}">Openen</button><button class="small-action" data-rename-media="${esc(item.id)}">Hernoemen</button><button class="small-action danger" data-delete-media="${esc(item.id)}">Verwijderen</button></div></div></article>`).join("")}</div>`:'<div class="empty">Nog geen media. Upload je eerste afbeelding of video.</div>'}</section>`;
 }
 function customerPlaylistsPage(){
   return `<section class="panel content-panel"><div class="panel-head"><div><h2>Afspeellijsten</h2><p>Zet media in de juiste volgorde en bepaal de speelduur.</p></div><button class="primary" id="new-playlist" ${mediaItems.length?"":"disabled"}>＋ Nieuwe afspeellijst</button></div>${!mediaItems.length?'<div class="empty">Upload eerst media voordat je een afspeellijst maakt.</div>':playlists.length?`<div class="playlist-grid">${playlists.map(p=>`<article class="playlist-card"><span class="playlist-icon">▶</span><div><strong>${esc(p.name)}</strong><small>${p.playlist_items?.length||0} item${p.playlist_items?.length===1?"":"s"} · ${playlistDuration(p)} seconden</small></div><div class="playlist-actions"><button class="small-action" data-edit-playlist="${esc(p.id)}">Bewerken</button><button class="small-action danger" data-delete-playlist="${esc(p.id)}">Verwijderen</button></div></article>`).join("")}</div>`:'<div class="empty">Nog geen afspeellijsten aangemaakt.</div>'}</section>`;
@@ -100,7 +101,7 @@ async function uploadMediaFile(file){
       if(!response.ok)throw new Error((await response.json().catch(()=>null))?.message||"Upload mislukt");
     }
     await request("/rest/v1/media_items",{method:"POST",headers:{Prefer:"return=minimal"},body:JSON.stringify({organization_id:identity.organizationId,uploaded_by:session.user.id,name:file.name,storage_path:path,mime_type:file.type,size_bytes:file.size})});
-    await Promise.all([loadMediaItems(),loadPlaylists()]);
+    await Promise.all([loadMediaItems(),loadPlaylists(),loadOperationalData()]);
   }catch(e){error="Upload mislukt: "+contentErrorMessage(e)}
   contentBusy=false;renderCustomerDashboard();
 }
@@ -116,15 +117,21 @@ async function renameMedia(id){
   if(!name||!name.trim()||name.trim()===item.name)return;
   try{
     await request("/rest/v1/media_items?id=eq."+encodeURIComponent(id),{method:"PATCH",headers:{Prefer:"return=minimal"},body:JSON.stringify({name:name.trim(),updated_at:new Date().toISOString()})});
-    await Promise.all([loadMediaItems(),loadPlaylists()]);renderCustomerDashboard();
+    await Promise.all([loadMediaItems(),loadPlaylists(),loadOperationalData()]);renderCustomerDashboard();
   }catch(e){error="Hernoemen mislukt: "+contentErrorMessage(e);renderCustomerDashboard()}
 }
 async function deleteMedia(id){
-  const item=mediaItems.find(m=>m.id===id);if(!item||!confirm("Media verwijderen? Het verdwijnt ook uit afspeellijsten."))return;
+  const item=mediaItems.find(m=>m.id===id);if(!item)return;
+  try{
+    const affected=await request('/rest/v1/rpc/screenflow_media_dependencies',{method:'POST',body:JSON.stringify({p_media_id:id})});
+    if(!Array.isArray(affected))throw new Error('Afhankelijkheden konden niet worden gecontroleerd.');
+    const detail=affected.length?'Dit bestand wordt gebruikt in:\n'+affected.map(p=>'• '+p.name+' ('+p.uses+'×)').join('\n')+'\n\nHet bestand verdwijnt ook uit deze afspeellijsten. Een lijst kan hierdoor leeg worden.':'Dit bestand wordt niet in een afspeellijst gebruikt.';
+    if(!confirm('“'+item.name+'” verwijderen?\n\n'+detail))return;
+  }catch(e){error='Verwijderen gestopt: '+contentErrorMessage(e);renderCustomerDashboard();return}
   try{
     await request("/storage/v1/object/screenflow-media/"+storageRoute(item.storage_path),{method:"DELETE"});
     await request("/rest/v1/media_items?id=eq."+encodeURIComponent(id),{method:"DELETE",headers:{Prefer:"return=minimal"}});
-    await Promise.all([loadMediaItems(),loadPlaylists(),loadContentSchedules()]);renderCustomerDashboard();
+    await Promise.all([loadMediaItems(),loadPlaylists(),loadContentSchedules(),loadOperationalData()]);renderCustomerDashboard();
   }catch(e){error="Verwijderen mislukt: "+contentErrorMessage(e);renderCustomerDashboard()}
 }
 function modalCloseBindings(){

@@ -49,7 +49,7 @@ public final class MediaCache {
         return target;
     }
 
-    private String extension(String mime) {
+    public File local(String id, String mime) { File file=new File(directory, id + extension(mime)); return file.isFile()?file:null; }\n\n    private String extension(String mime) {
         if ("image/jpeg".equalsIgnoreCase(mime)) return ".jpg";
         if ("image/png".equalsIgnoreCase(mime)) return ".png";
         if ("video/mp4".equalsIgnoreCase(mime)) return ".mp4";

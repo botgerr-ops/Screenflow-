@@ -12,6 +12,8 @@ android {
     namespace = "nl.screenflow.player"
     compileSdk = 34
 
+    buildFeatures { buildConfig = true }
+
     defaultConfig {
         applicationId = "nl.screenflow.player"
         minSdk = 26

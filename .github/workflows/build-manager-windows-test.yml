@@ -33,9 +33,9 @@ jobs:
       - name: Verify TEST version
         shell: pwsh
         run: |
-          $cargo = Get-Content manager-windows/src-tauri/Cargo.toml -Raw
+          $metadata = cargo metadata --no-deps --format-version 1 --manifest-path manager-windows/src-tauri/Cargo.toml | ConvertFrom-Json
           $tauri = Get-Content manager-windows/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          if ($cargo -notmatch '(?m)^version = "0\.8\.2"$') { throw 'Cargo version is not 0.8.2' }
+          if ($metadata.packages[0].version -ne '0.8.2') { throw 'Cargo version is not 0.8.2' }
           if ($tauri.version -ne '0.8.2') { throw 'Tauri version is not 0.8.2' }
 
       - name: Install test dependencies

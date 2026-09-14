@@ -38,7 +38,7 @@ public class MainActivity extends Activity {
   private static final long HEARTBEAT_MS=30_000L, RETRY_MIN_MS=10_000L;
   private final Handler handler=new Handler(Looper.getMainLooper());
   private final ExecutorService network=Executors.newSingleThreadExecutor();
-  private PlayerIdentityStore identity; private PlayerApiClient api; private MediaCache cache;
+  private PlayerIdentityStore identity; private PlayerApiClient api; private MediaCache cache; private PlayerStateStore state;
   private TextView status,detail,networkStatus; private long configRevision=0,retryDelay=RETRY_MIN_MS;
   private boolean activeScreen=false, syncSucceeded=false; private String currentPlaylistId=null, playbackFingerprint="";
   private final Runnable cycle=new Runnable(){@Override public void run(){sync();}};
@@ -52,8 +52,8 @@ public class MainActivity extends Activity {
 
   @Override protected void onCreate(Bundle state){
     super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
-    identity=new PlayerIdentityStore(this);api=new PlayerApiClient(identity);cache=new MediaCache(this);
-    showPairingScreen("Player voorbereiden…");handler.post(cycle);
+    identity=new PlayerIdentityStore(this);api=new PlayerApiClient(identity);cache=new MediaCache(this);state=new PlayerStateStore(this);
+    showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();handler.post(cycle);
   }
 
   private void sync(){network.execute(()->{try{
@@ -69,13 +69,14 @@ public class MainActivity extends Activity {
       }else{syncSucceeded=false;currentPlaylistId=null;showPending(response);}
     }
     retryDelay=RETRY_MIN_MS;schedule(HEARTBEAT_MS);
-  }catch(PlayerApiClient.ApiException e){if(e.status==401)showPairingScreen("Playeridentiteit moet opnieuw worden gekoppeld.");else showNetworkError("Verbinding tijdelijk niet beschikbaar.");scheduleRetry();}
-    catch(Exception e){syncSucceeded=false;showNetworkError("Geen verbinding. Afspelen uit cache blijft actief.");scheduleRetry();}
+  }catch(PlayerApiClient.ApiException e){if(e.status==401){identity.clearCredentials();state.clear();showPairingScreen("Playeridentiteit moet opnieuw worden gekoppeld.");}else{restoreOfflineSnapshot();showNetworkError("Verbinding tijdelijk niet beschikbaar.");}scheduleRetry();}
+    catch(Exception e){syncSucceeded=false;restoreOfflineSnapshot();showNetworkError("Geen verbinding. Afspelen uit cache blijft actief.");scheduleRetry();}
   });}
 
   private void applyConfig(JSONObject config) throws Exception {
     JSONObject manifest=config.optJSONObject("manifest");
     if(manifest==null){stopPlayback("Geen configuratie ontvangen.");return;}
+    cacheManifestMedia(manifest); state.save(configRevision, manifest);
     JSONObject schedule=activeSchedule(manifest.optJSONArray("schedules"));
     if(schedule==null){stopPlayback("Geen actieve planning op dit moment.");return;}
     String playlistId=schedule.optString("playlist_id","");
@@ -89,7 +90,7 @@ public class MainActivity extends Activity {
       JSONObject item=items.optJSONObject(i);if(item==null||!playlistId.equals(item.optString("playlist_id")))continue;
       JSONObject source=mediaById.get(item.optString("media_id"));if(source==null)continue;
       String mime=source.optString("mime_type","");if(!mime.startsWith("image/")&&!mime.startsWith("video/"))continue;
-      next.add(new Playable(cache.ensure(source),mime,Math.max(1,item.optInt("duration_seconds",10))));
+      File local=source.has("signed_url")?cache.ensure(source):cache.local(source.optString("media_id"),mime); if(local!=null)next.add(new Playable(local,mime,Math.max(1,item.optInt("duration_seconds",10))));
     }
     if(next.isEmpty()){stopPlayback("De actieve afspeellijst bevat geen ondersteunde media.");return;}
     String fingerprint=playlistId+"|"+fingerprint(next);
@@ -97,6 +98,9 @@ public class MainActivity extends Activity {
     if(fingerprint.equals(playbackFingerprint)&&!queue.isEmpty())return;
     playbackFingerprint=fingerprint;queue.clear();queue.addAll(next);queueIndex=0;handler.post(()->{showActiveState();handler.post(this::startPlayback);});
   }
+
+  private void cacheManifestMedia(JSONObject manifest) throws Exception { JSONArray media=manifest.optJSONArray("media"); if(media!=null)for(int i=0;i<media.length();i++){JSONObject item=media.optJSONObject(i);if(item!=null&&item.has("signed_url"))cache.ensure(item);} }
+  private void restoreOfflineSnapshot(){ try{JSONObject snapshot=state.load();if(snapshot==null)return;configRevision=Math.max(configRevision,snapshot.optLong("config_revision",0));JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);syncSucceeded=false;}catch(Exception ignored){} }
 
   private JSONObject activeSchedule(JSONArray schedules){
     if(schedules==null)return null;

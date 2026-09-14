@@ -108,9 +108,11 @@ async function changeFirstPassword(event){
   if(password!==repeated){error="De wachtwoorden zijn niet hetzelfde.";renderPasswordChange();return}
   const button=document.getElementById("password-change-button");button.disabled=true;button.textContent="Opslaan…";
   try {
+    const email=session?.user?.email||"";
+    if(!email) throw new Error("Het e-mailadres ontbreekt in de huidige sessie.");
     await request("/functions/v1/manager-customer-admin",{method:"POST",body:JSON.stringify({action:"complete_password_change",current_password:temporaryPassword,new_password:password})});
-    const refreshed=await nativeRequest("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:session.refresh_token})});
-    saveSession(refreshed);
+    const renewed=await nativeRequest("/auth/v1/token?grant_type=password",{method:"POST",body:JSON.stringify({email,password})});
+    saveSession(renewed);
     identity.forcePasswordChange=false;
     await Promise.all([loadCustomers(),loadPlayers(),loadSupportRequests(),loadContentData()]);
     renderDashboard();

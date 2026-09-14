@@ -42,7 +42,7 @@ public class MainActivity extends Activity {
   private TextView status,detail,networkStatus; private long configRevision=0,retryDelay=RETRY_MIN_MS;
   private boolean activeScreen=false, syncSucceeded=false; private String currentPlaylistId=null, playbackFingerprint="";
   private final Runnable cycle=new Runnable(){@Override public void run(){sync();}};
-  private final Runnable advance=new Runnable(){@Override public void run(){advancePlayback();}};
+  private final Runnable advance=new Runnable(){@Override public void run(){advancePlayback();}};\n  private final Runnable planningTick=new Runnable(){@Override public void run(){evaluateLocalPlanning();handler.postDelayed(this,15000L);}};
   private final List<Playable> queue=new ArrayList<>(); private int queueIndex=0; private FrameLayout playbackSurface;
 
   private static final class Playable {
@@ -53,7 +53,7 @@ public class MainActivity extends Activity {
   @Override protected void onCreate(Bundle state){
     super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
     identity=new PlayerIdentityStore(this);api=new PlayerApiClient(identity);cache=new MediaCache(this);state=new PlayerStateStore(this);
-    showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();handler.post(cycle);
+    showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();handler.post(cycle);handler.postDelayed(planningTick,15000L);
   }
 
   private void sync(){network.execute(()->{try{
@@ -100,7 +100,7 @@ public class MainActivity extends Activity {
   }
 
   private void cacheManifestMedia(JSONObject manifest) throws Exception { JSONArray media=manifest.optJSONArray("media"); if(media!=null)for(int i=0;i<media.length();i++){JSONObject item=media.optJSONObject(i);if(item!=null&&item.has("signed_url"))cache.ensure(item);} }
-  private void restoreOfflineSnapshot(){ try{JSONObject snapshot=state.load();if(snapshot==null)return;configRevision=Math.max(configRevision,snapshot.optLong("config_revision",0));JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);syncSucceeded=false;}catch(Exception ignored){} }
+  private void restoreOfflineSnapshot(){ try{JSONObject snapshot=state.load();if(snapshot==null)return;configRevision=Math.max(configRevision,snapshot.optLong("config_revision",0));JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);syncSucceeded=false;}catch(Exception ignored){} }\n  private void evaluateLocalPlanning(){try{JSONObject snapshot=state.load();if(snapshot==null)return;JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);}catch(Exception ignored){}}
 
   private JSONObject activeSchedule(JSONArray schedules){
     if(schedules==null)return null;

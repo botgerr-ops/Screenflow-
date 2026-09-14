@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
     playbackFingerprint=fingerprint;queue.clear();queue.addAll(next);queueIndex=0;handler.post(()->{showActiveState();handler.post(this::startPlayback);});
   }
 
-  private void cacheManifestMedia(JSONObject manifest) throws Exception { JSONArray media=manifest.optJSONArray("media"); if(media!=null)for(int i=0;i<media.length();i++){JSONObject item=media.optJSONObject(i);if(item!=null&&item.has("signed_url"))cache.ensure(item);} }
+  private void cacheManifestMedia(JSONObject manifest) throws Exception { JSONArray media=manifest.optJSONArray("media"); java.util.Set<String> allowed=new java.util.HashSet<>(); if(media!=null)for(int i=0;i<media.length();i++){JSONObject item=media.optJSONObject(i);if(item!=null){String id=item.optString("media_id","");if(!id.isEmpty())allowed.add(id);if(item.has("signed_url"))cache.ensure(item);}} cache.pruneTo(allowed); }
   private void restoreOfflineSnapshot(){ try{JSONObject snapshot=state.load();if(snapshot==null)return;configRevision=Math.max(configRevision,snapshot.optLong("config_revision",0));JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);syncSucceeded=false;}catch(Exception ignored){} }\n  private void evaluateLocalPlanning(){try{JSONObject snapshot=state.load();if(snapshot==null)return;JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);}catch(Exception ignored){}}
 
   private JSONObject activeSchedule(JSONArray schedules){

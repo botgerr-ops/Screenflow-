@@ -19,6 +19,19 @@ function randomPassword() {
   return value.slice(0, 5) + "!" + value.slice(5, 10) + "7" + value.slice(10);
 }
 
+function verifiedRecoverySession(token: string) {
+  try {
+    const encoded = token.split(".")[1];
+    if (!encoded) return false;
+    const payload = JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(encoded.length / 4) * 4, "=")));
+    return Array.isArray(payload?.amr) && payload.amr.some((entry: unknown) =>
+      typeof entry === "object" && entry !== null && String((entry as Record<string, unknown>).method || "").toLowerCase() === "recovery"
+    );
+  } catch {
+    return false;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method === "GET") return json({ ok: true });
@@ -36,10 +49,45 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     if (body.action === "complete_password_change") {
-      const role = String(authData.user.app_metadata?.role || "").toLowerCase();
-      if (role !== "customer_admin") return json({ message: "Alleen een klantbeheerder kan deze stap afronden" }, 403);
+      const metadata = authData.user.app_metadata || {};
+      if (String(metadata.role || "").toLowerCase() !== "customer_admin") {
+        return json({ message: "Alleen een klantbeheerder kan deze stap afronden" }, 403);
+      }
+      if (metadata.force_password_change !== true) {
+        return json({ message: "Deze wachtwoordwijziging is al afgerond of niet vereist" }, 409);
+      }
+
+      const newPassword = typeof body.new_password === "string" ? body.new_password : "";
+      const currentPassword = typeof body.current_password === "string" ? body.current_password : "";
+      if (newPassword.length < 12) {
+        return json({ message: "Gebruik een nieuw wachtwoord van minimaal 12 tekens" }, 400);
+      }
+
+      if (currentPassword) {
+        if (currentPassword === newPassword) {
+          return json({ message: "Het nieuwe wachtwoord moet verschillen van het tijdelijke wachtwoord" }, 400);
+        }
+        const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+        if (!anonKey || !authData.user.email) {
+          return json({ message: "Serverconfiguratie voor wachtwoordcontrole ontbreekt" }, 500);
+        }
+        const passwordClient = createClient(url, anonKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const { data: passwordData, error: passwordError } = await passwordClient.auth.signInWithPassword({
+          email: authData.user.email,
+          password: currentPassword,
+        });
+        if (passwordError || passwordData.user?.id !== authData.user.id) {
+          return json({ message: "Het tijdelijke wachtwoord is niet juist" }, 403);
+        }
+      } else if (!verifiedRecoverySession(token)) {
+        return json({ message: "Vul het tijdelijke wachtwoord in of gebruik een geldige herstelsessie" }, 400);
+      }
+
       const { error } = await admin.auth.admin.updateUserById(authData.user.id, {
-        app_metadata: { ...authData.user.app_metadata, force_password_change: false },
+        password: newPassword,
+        app_metadata: { ...metadata, force_password_change: false },
       });
       if (error) throw error;
       return json({ ok: true, password_change_completed: true });

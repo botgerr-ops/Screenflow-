@@ -1,0 +1,47 @@
+name: Build ScreenFlow Admin 0.8.2 TEST
+
+on:
+  push:
+    branches:
+      - feature/player-0.5-windows-integration
+    paths:
+      - manager-windows/**
+      - .github/workflows/build-manager-windows-test.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-test:
+    name: Build Windows TEST installer
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: manager-windows/tests/package-lock.json
+
+      - name: Run regression tests
+        working-directory: manager-windows/tests
+        run: |
+          npm ci
+          npm test
+
+      - name: Build NSIS installer
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: manager-windows
+          args: --bundles nsis
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenFlow-Admin-0.8.2-TEST-windows
+          path: manager-windows/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7

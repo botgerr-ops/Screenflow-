@@ -55,7 +55,7 @@ begin
   if $3 then
     insert into public.player_playlist_assignments(device_id, playlist_id, assigned_by)
     values ($1, $2, auth.uid())
-    on conflict (device_id, playlist_id) do nothing;
+    on conflict on constraint player_playlist_assignments_pkey do nothing;
   else
     delete from public.player_playlist_assignments a where a.device_id = $1 and a.playlist_id = $2;
   end if;

@@ -5,7 +5,7 @@ name: Build ScreenFlow APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "feature/player-0.5-windows-integration"]
 
 jobs:
   build:

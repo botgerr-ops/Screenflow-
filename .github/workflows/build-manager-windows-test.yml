@@ -1,4 +1,4 @@
-name: Build ScreenFlow Admin 0.8.3 TEST
+name: Build ScreenFlow Admin 0.8.4 TEST
 
 on:
   push:
@@ -35,8 +35,8 @@ jobs:
         run: |
           $metadata = cargo metadata --no-deps --format-version 1 --manifest-path manager-windows/src-tauri/Cargo.toml | ConvertFrom-Json
           $tauri = Get-Content manager-windows/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
-          if ($metadata.packages[0].version -ne '0.8.3') { throw 'Cargo version is not 0.8.3' }
-          if ($tauri.version -ne '0.8.3') { throw 'Tauri version is not 0.8.3' }
+          if ($metadata.packages[0].version -ne '0.8.4') { throw 'Cargo version is not 0.8.4' }
+          if ($tauri.version -ne '0.8.4') { throw 'Tauri version is not 0.8.4' }
 
       - name: Install test dependencies
         working-directory: manager-windows/tests
@@ -55,7 +55,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: ScreenFlow-Admin-0.8.3-TEST-windows
+          name: ScreenFlow-Admin-0.8.4-TEST-windows
           path: manager-windows/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 7

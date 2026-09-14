@@ -43,11 +43,10 @@ function renderRecovery(step='email',message=''){
         const password=document.getElementById('recovery-password').value;
         if(password.length<12||password!==document.getElementById('recovery-repeat').value)throw new Error('Gebruik minimaal 12 tekens en vul tweemaal hetzelfde wachtwoord in.');
         if(!recoverySession?.access_token)throw new Error('Vraag een nieuwe herstelcode aan.');
-        await recoveryRequest('/auth/v1/user',{password},recoverySession.access_token,'PUT');
-        if(generation!==recoveryGeneration)return;
-        // A temporary customer password has now actually been replaced.
         if(recoverySession.user?.app_metadata?.force_password_change===true){
-          await recoveryRequest('/functions/v1/manager-customer-admin',{action:'complete_password_change'},recoverySession.access_token);
+          await recoveryRequest('/functions/v1/manager-customer-admin',{action:'complete_password_change',new_password:password},recoverySession.access_token);
+        }else{
+          await recoveryRequest('/auth/v1/user',{password},recoverySession.access_token,'PUT');
         }
         if(generation!==recoveryGeneration)return;
         await recoveryRequest('/auth/v1/logout?scope=global',{},recoverySession.access_token).catch(()=>{});

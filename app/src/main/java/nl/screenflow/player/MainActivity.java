@@ -116,13 +116,11 @@ public class MainActivity extends Activity {
       try{
         ZoneId zone=ZoneId.of(schedule.optString("timezone","Europe/Amsterdam"));
         LocalDateTime now=LocalDateTime.now(zone);int day=now.getDayOfWeek().getValue()%7;
-        JSONArray days=schedule.optJSONArray("days_of_week");boolean correctDay=false;
-        if(days!=null)for(int n=0;n<days.length();n++)if(days.optInt(n,-1)==day)correctDay=true;
-        if(!correctDay)continue;
+        JSONArray configuredDays=schedule.optJSONArray("days_of_week");List<Integer> days=new ArrayList<>();
+        if(configuredDays!=null)for(int n=0;n<configuredDays.length();n++)days.add(configuredDays.optInt(n,-1));
         LocalTime start=LocalTime.parse(schedule.optString("start_time","00:00:00"));
-        LocalTime end=LocalTime.parse(schedule.optString("end_time","23:59:59"));LocalTime time=now.toLocalTime();
-        boolean active=end.isAfter(start)?(!time.isBefore(start)&&time.isBefore(end)):(!time.isBefore(start)||time.isBefore(end));
-        if(active)matches.add(schedule);
+        LocalTime end=LocalTime.parse(schedule.optString("end_time","23:59:59"));
+        if(ScheduleLogic.isActive(days,day,start,end,now.toLocalTime()))matches.add(schedule);
       }catch(Exception ignored){}
     }
     if(matches.isEmpty())return null;

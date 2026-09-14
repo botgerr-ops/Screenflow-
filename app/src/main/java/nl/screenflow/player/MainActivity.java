@@ -55,8 +55,8 @@ public class MainActivity extends Activity {
     Playable(File file,String mime,int duration){this.file=file;this.mime=mime;this.duration=duration;}
   }
 
-  @Override protected void onCreate(Bundle state){
-    super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
+  @Override protected void onCreate(Bundle savedInstanceState){
+    super.onCreate(savedInstanceState);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
     identity=new PlayerIdentityStore(this);api=new PlayerApiClient(identity);cache=new MediaCache(this);state=new PlayerStateStore(this);
     showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();
     connectivity=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);networkValidated=isNetworkValidated();

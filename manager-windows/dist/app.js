@@ -94,22 +94,23 @@ async function bootAuthenticated(){
   }
 }
 function renderPasswordChange(){
-  app.innerHTML=`<main class="login-screen"><form class="login-card password-card" id="password-change-form">${logo()}<p class="eyebrow">EERSTE AANMELDING</p><h1>Kies je eigen wachtwoord.</h1><p>Het tijdelijke wachtwoord moet eerst worden vervangen. ScreenFlow en de Manager kunnen je nieuwe wachtwoord daarna niet bekijken.</p><label>Nieuw wachtwoord<input id="new-password" autocomplete="new-password" type="password" minlength="12" required></label><label>Herhaal wachtwoord<input id="repeat-password" autocomplete="new-password" type="password" minlength="12" required></label><small class="password-hint">Minimaal 12 tekens. Gebruik bij voorkeur woorden, cijfers en een teken.</small><p class="login-error ${error?"":"hidden"}">${esc(error)}</p><button class="primary" id="password-change-button">Wachtwoord opslaan</button><button class="text-button" type="button" id="password-logout">Uitloggen</button></form></main>`;
+  app.innerHTML=`<main class="login-screen"><form class="login-card password-card" id="password-change-form">${logo()}<p class="eyebrow">EERSTE AANMELDING</p><h1>Kies je eigen wachtwoord.</h1><p>Vul je tijdelijke wachtwoord nog één keer in. De server controleert het en vervangt het daarna door je nieuwe wachtwoord.</p><label>Tijdelijk wachtwoord<input id="temporary-password" autocomplete="current-password" type="password" required></label><label>Nieuw wachtwoord<input id="new-password" autocomplete="new-password" type="password" minlength="12" required></label><label>Herhaal wachtwoord<input id="repeat-password" autocomplete="new-password" type="password" minlength="12" required></label><small class="password-hint">Minimaal 12 tekens. Gebruik bij voorkeur woorden, cijfers en een teken.</small><p class="login-error ${error?"":"hidden"}">${esc(error)}</p><button class="primary" id="password-change-button">Wachtwoord opslaan</button><button class="text-button" type="button" id="password-logout">Uitloggen</button></form></main>`;
   document.getElementById("password-change-form").onsubmit=changeFirstPassword;
   document.getElementById("password-logout").onclick=()=>{saveSession(null);identity=null;error="";renderLogin()};
 }
 async function changeFirstPassword(event){
   event.preventDefault();error="";
+  const temporaryPassword=document.getElementById("temporary-password").value;
   const password=document.getElementById("new-password").value;
   const repeated=document.getElementById("repeat-password").value;
+  if(!temporaryPassword){error="Vul je tijdelijke wachtwoord in.";renderPasswordChange();return}
   if(password.length<12){error="Gebruik minimaal 12 tekens.";renderPasswordChange();return}
   if(password!==repeated){error="De wachtwoorden zijn niet hetzelfde.";renderPasswordChange();return}
   const button=document.getElementById("password-change-button");button.disabled=true;button.textContent="Opslaan…";
   try {
-    await request("/auth/v1/user",{method:"PUT",body:JSON.stringify({password})});
-    await request("/functions/v1/manager-customer-admin",{method:"POST",body:JSON.stringify({action:"complete_password_change"})});
-    session.user.app_metadata={...(session.user.app_metadata||{}),force_password_change:false};
-    saveSession(session);
+    await request("/functions/v1/manager-customer-admin",{method:"POST",body:JSON.stringify({action:"complete_password_change",current_password:temporaryPassword,new_password:password})});
+    const refreshed=await nativeRequest("/auth/v1/token?grant_type=refresh_token",{method:"POST",body:JSON.stringify({refresh_token:session.refresh_token})});
+    saveSession(refreshed);
     identity.forcePasswordChange=false;
     await Promise.all([loadCustomers(),loadPlayers(),loadSupportRequests(),loadContentData()]);
     renderDashboard();

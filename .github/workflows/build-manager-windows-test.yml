@@ -23,14 +23,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: manager-windows/tests/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: manager-windows/src-tauri
+
+      - name: Verify TEST version
+        shell: pwsh
+        run: |
+          $cargo = Get-Content manager-windows/src-tauri/Cargo.toml -Raw
+          $tauri = Get-Content manager-windows/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          if ($cargo -notmatch '(?m)^version = "0\.8\.2"$') { throw 'Cargo version is not 0.8.2' }
+          if ($tauri.version -ne '0.8.2') { throw 'Tauri version is not 0.8.2' }
+
+      - name: Install test dependencies
+        working-directory: manager-windows/tests
+        run: npm install --no-audit --no-fund
 
       - name: Run regression tests
         working-directory: manager-windows/tests
-        run: |
-          npm ci
-          npm test
+        run: npm test
 
       - name: Build NSIS installer
         uses: tauri-apps/tauri-action@v0

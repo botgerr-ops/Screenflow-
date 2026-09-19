@@ -12,6 +12,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.Map;
 
 /** Downloads signed media URLs into private app storage. Files are only replaced when server metadata changes. */
 public final class MediaCache {
@@ -52,6 +53,18 @@ public final class MediaCache {
     }
 
     public File local(String id, String mime) { File file=new File(directory, id + extension(mime)); return file.isFile()?file:null; }
+
+    /** Prunes only after the complete manifest has been cached, so failed partial syncs keep old playback intact. */
+    public synchronized void pruneTo(Set<String> allowedIds) {
+        File[] files=directory.listFiles();
+        if(files!=null)for(File file:files){
+            String name=file.getName();String id=name.endsWith(".download")?name.substring(0,name.length()-9):name.substring(0,Math.max(0,name.lastIndexOf('.')));
+            if(!allowedIds.contains(id))file.delete();
+        }
+        SharedPreferences.Editor editor=metadata.edit();
+        for(Map.Entry<String,?> entry:metadata.getAll().entrySet())if(!allowedIds.contains(entry.getKey()))editor.remove(entry.getKey());
+        editor.apply();
+    }
 
     private String extension(String mime) {
         if ("image/jpeg".equalsIgnoreCase(mime)) return ".jpg";

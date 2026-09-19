@@ -29,7 +29,7 @@ public final class PlayerApiClient {
         body.put("device_uid", store.deviceUid()); body.put("platform", "android");
         body.put("manufacturer", safe(Build.MANUFACTURER)); body.put("model", safe(Build.MODEL));
         body.put("os_version", safe(Build.VERSION.RELEASE)); body.put("sdk_version", Build.VERSION.SDK_INT);
-        body.put("firmware_version", safe(Build.DISPLAY)); body.put("app_version", "0.5.1-test"); return body;
+        body.put("firmware_version", safe(Build.DISPLAY)); body.put("app_version", BuildConfig.VERSION_NAME); return body;
     }
     private String safe(String value) { return value == null ? "unknown" : value.trim(); }
     private JSONObject post(String route, JSONObject body, boolean authenticate) throws Exception {

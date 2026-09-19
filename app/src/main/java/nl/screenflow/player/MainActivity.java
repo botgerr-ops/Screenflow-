@@ -7,6 +7,7 @@ import android.media.MediaPlayer;
 import android.net.Uri;
 import android.net.ConnectivityManager;
 import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
@@ -35,15 +36,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** TEST player: authenticated config polling, private media cache and scheduled fullscreen playback. */
 public class MainActivity extends Activity {
   private static final long HEARTBEAT_MS=30_000L, RETRY_MIN_MS=10_000L;
   private final Handler handler=new Handler(Looper.getMainLooper());
-  private final ExecutorService network=Executors.newSingleThreadExecutor(); private final AtomicBoolean syncRunning=new AtomicBoolean(false); private ConnectivityManager connectivity; private ConnectivityManager.NetworkCallback networkCallback;
+  private final ExecutorService network=Executors.newSingleThreadExecutor(); private final SyncGate syncGate=new SyncGate(); private ConnectivityManager connectivity; private ConnectivityManager.NetworkCallback networkCallback; private boolean networkValidated;
   private PlayerIdentityStore identity; private PlayerApiClient api; private MediaCache cache; private PlayerStateStore state;
-  private TextView status,detail,networkStatus; private long configRevision=0,retryDelay=RETRY_MIN_MS;
+  private TextView status,detail,networkStatus; private PairingView pairingView; private long configRevision=0,retryDelay=RETRY_MIN_MS;
   private boolean activeScreen=false, syncSucceeded=false; private String currentPlaylistId=null, playbackFingerprint="";
   private final Runnable cycle=new Runnable(){@Override public void run(){sync();}};
   private final Runnable advance=new Runnable(){@Override public void run(){advancePlayback();}};
@@ -55,13 +55,22 @@ public class MainActivity extends Activity {
     Playable(File file,String mime,int duration){this.file=file;this.mime=mime;this.duration=duration;}
   }
 
-  @Override protected void onCreate(Bundle state){
-    super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
+  @Override protected void onCreate(Bundle savedInstanceState){
+    super.onCreate(savedInstanceState);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
     identity=new PlayerIdentityStore(this);api=new PlayerApiClient(identity);cache=new MediaCache(this);state=new PlayerStateStore(this);
-    showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();connectivity=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);networkCallback=new ConnectivityManager.NetworkCallback(){@Override public void onAvailable(Network n){handler.post(()->{retryDelay=RETRY_MIN_MS;sync();});}};connectivity.registerDefaultNetworkCallback(networkCallback);handler.post(cycle);handler.postDelayed(planningTick,15000L);
+    showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();
+    connectivity=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);networkValidated=isNetworkValidated();
+    networkCallback=new ConnectivityManager.NetworkCallback(){
+      @Override public void onCapabilitiesChanged(Network n,NetworkCapabilities capabilities){boolean validated=capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);handler.post(()->updateNetworkState(validated));}
+      @Override public void onLost(Network n){handler.post(()->updateNetworkState(false));}
+    };
+    connectivity.registerDefaultNetworkCallback(networkCallback);handler.post(cycle);handler.postDelayed(planningTick,15000L);
   }
 
-  private void sync(){if(!syncRunning.compareAndSet(false,true))return;network.execute(()->{try{
+  private boolean isNetworkValidated(){Network active=connectivity.getActiveNetwork();if(active==null)return false;NetworkCapabilities capabilities=connectivity.getNetworkCapabilities(active);return capabilities!=null&&capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);}
+  private void updateNetworkState(boolean validated){boolean recovered=!networkValidated&&validated;networkValidated=validated;if(recovered){retryDelay=RETRY_MIN_MS;handler.removeCallbacks(cycle);sync();}}
+  private void sync(){syncGate.request(network,this::performSync);}
+  private void performSync(){try{
     JSONObject response;
     if(!identity.hasCredentials()){
       response=api.bootstrap();identity.saveCredentials(response.getString("player_id"),response.getString("player_secret"));
@@ -75,8 +84,8 @@ public class MainActivity extends Activity {
     }
     retryDelay=RETRY_MIN_MS;schedule(HEARTBEAT_MS);
   }catch(PlayerApiClient.ApiException e){if(e.status==401){identity.clearCredentials();state.clear();showPairingScreen("Playeridentiteit moet opnieuw worden gekoppeld.");}else{restoreOfflineSnapshot();showNetworkError("Verbinding tijdelijk niet beschikbaar.");}scheduleRetry();}
-    catch(Exception e){syncSucceeded=false;restoreOfflineSnapshot();showNetworkError("Geen verbinding. Afspelen uit cache blijft actief.");scheduleRetry();} finally {syncRunning.set(false);}
-  });}
+    catch(Exception e){syncSucceeded=false;restoreOfflineSnapshot();showNetworkError("Geen verbinding. Afspelen uit cache blijft actief.");scheduleRetry();}
+  }
 
   private void applyConfig(JSONObject config) throws Exception {
     JSONObject manifest=config.optJSONObject("manifest");
@@ -152,11 +161,35 @@ public class MainActivity extends Activity {
   private void schedule(long delay){handler.removeCallbacks(cycle);handler.postDelayed(cycle,delay);}
   private void scheduleRetry(){schedule(retryDelay);retryDelay=Math.min(retryDelay*2,5*60_000L);}
 
-  private void showPairingScreen(String initial){handler.post(()->{activeScreen=false;handler.removeCallbacks(advance);LinearLayout box=base();TextView brand=label("NARROWVISION",22,Color.rgb(242,255,98));brand.setLetterSpacing(.14f);TextView title=label("Deze player is nog niet gekoppeld.",28,Color.WHITE);status=label(initial,18,Color.rgb(18,20,22));badge(status);detail=label("Apparaat: "+android.os.Build.MANUFACTURER+" "+android.os.Build.MODEL+"\nAndroid "+android.os.Build.VERSION.RELEASE,14,Color.rgb(170,174,180));networkStatus=label("Netwerk: verbinding maken",13,Color.rgb(170,174,180));box.addView(brand);box.addView(space(20));box.addView(title);box.addView(space(20));box.addView(status);box.addView(space(20));box.addView(detail);box.addView(space(10));box.addView(networkStatus);setContentView(box);});}
-  private void showPending(JSONObject response){handler.post(()->{if(activeScreen||status==null)showPairingScreen("Pairingcode ophalen…");String code=response.optString("pairing_code",identity.pairingCode()==null?"":identity.pairingCode());String expiry=response.optString("pairing_code_expires_at",identity.pairingExpiresAt()==null?"":identity.pairingExpiresAt());status.setText(code.isEmpty()?"Wachten op koppeling…":formatCode(code));status.setTextSize(code.isEmpty()?18:34);detail.setText("Voer deze code in NarrowVision Admin in.\n"+(expiry.isEmpty()?"Deze player wacht veilig op koppeling.":"Geldig tot: "+expiry));networkStatus.setText("Netwerk: verbonden · controle iedere 30 seconden");});}
+  private void showPairingScreen(String initial) {
+    handler.post(() -> {
+      activeScreen = false;
+      handler.removeCallbacks(advance);
+      if (pairingView == null) pairingView = new PairingView(this);
+      pairingView.reset(initial);
+      pairingView.network(networkValidated ? "Netwerk: verbonden" : "Netwerk: verbinding maken…", networkValidated);
+      setContentView(pairingView);
+    });
+  }
+  private void showPending(JSONObject response) {
+    handler.post(() -> {
+      activeScreen = false;
+      handler.removeCallbacks(advance);
+      if (pairingView == null) pairingView = new PairingView(this);
+      String code = response.optString("pairing_code", identity.pairingCode() == null ? "" : identity.pairingCode());
+      String expiry = response.optString("pairing_code_expires_at", identity.pairingExpiresAt() == null ? "" : identity.pairingExpiresAt());
+      pairingView.pending(code, expiry);
+      pairingView.network(networkValidated ? "Netwerk: verbonden" : "Netwerk: verbinding maken…", networkValidated);
+      setContentView(pairingView);
+    });
+  }
   private void showActiveState(){showActiveState(null);}
   private void showActiveState(String message){handler.post(()->{if(!activeScreen){activeScreen=true;FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);playbackSurface=new FrameLayout(this);root.addView(playbackSurface,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));TextView overlay=label("NARROWVISION PLAYER",12,Color.rgb(242,255,98));overlay.setPadding(dp(16),dp(12),dp(16),dp(12));FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,FrameLayout.LayoutParams.WRAP_CONTENT,Gravity.TOP|Gravity.END);root.addView(overlay,lp);setContentView(root);}if(message!=null){playbackSurface.removeAllViews();TextView empty=label(message,19,Color.LTGRAY);playbackSurface.addView(empty,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));}});}
-  private void showNetworkError(String message){handler.post(()->{if(networkStatus!=null)networkStatus.setText("Netwerk: "+message);});}
+  private void showNetworkError(String message) {
+    handler.post(() -> {
+      if (pairingView != null && !activeScreen) pairingView.network("Netwerk: " + message, false);
+    });
+  }
   private LinearLayout base(){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(Gravity.CENTER);box.setPadding(dp(42),dp(42),dp(42),dp(42));box.setBackgroundColor(Color.rgb(16,17,20));return box;}
   private TextView label(String text,int size,int color){TextView v=new TextView(this);v.setText(text);v.setTextSize(size);v.setTextColor(color);v.setGravity(Gravity.CENTER);return v;} private View space(int size){View v=new View(this);v.setLayoutParams(new LinearLayout.LayoutParams(1,dp(size)));return v;}
   private void badge(TextView v){v.setPadding(dp(24),dp(14),dp(24),dp(14));GradientDrawable bg=new GradientDrawable();bg.setColor(Color.rgb(242,255,98));bg.setCornerRadius(dp(16));v.setBackground(bg);} private String formatCode(String code){String clean=code.replaceAll("[^A-Za-z0-9]","");StringBuilder out=new StringBuilder();for(int i=0;i<clean.length();i++){if(i>0&&i%4==0)out.append('-');out.append(clean.charAt(i));}return out.toString();}

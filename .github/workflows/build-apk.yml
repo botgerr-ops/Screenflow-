@@ -5,7 +5,7 @@ name: Build ScreenFlow APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, "feature/player-0.5-windows-integration"]
+    branches: [main, "feature/player-0.5-windows-integration", "recovery/android-player-0.5.5-test"]
 
 jobs:
   build:
@@ -33,6 +33,7 @@ jobs:
           SCREENFLOW_KEY_ALIAS: ${{ secrets.SCREENFLOW_KEY_ALIAS }}
           SCREENFLOW_KEY_PASSWORD: ${{ secrets.SCREENFLOW_KEY_PASSWORD }}
         run: |
+          gradle test
           if [ -f app/screenflow-release.keystore ]; then
             gradle assembleRelease
           else
@@ -40,7 +41,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: screenflow-player-apk
+          name: NarrowVision-Player-0.5.5-TEST-APK
           path: app/build/outputs/apk/**/*.apk
 
 # Permanent ScreenFlow release signing

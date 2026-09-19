@@ -3,9 +3,8 @@ package nl.screenflow.player;
 import android.content.Context;
 import android.graphics.*;
 import android.view.View;
-import java.time.Instant;
 
-/** Native, offline-ready presentation only. No registration, credentials or playback logic. */
+/** Native, offline-ready presentation only. The server owns code expiry and rotation. */
 public final class PairingView extends View {
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Bitmap background;
@@ -17,13 +16,14 @@ public final class PairingView extends View {
         background = BitmapFactory.decodeResource(getResources(), R.drawable.pairing_background);
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
     }
+    // Never use the device's wall clock to hide a valid code. The authenticated heartbeat
+    // provides the currently valid code and rotates expired codes on the server.
     public void pending(String value, String expiry) { code=value; expires=expiry; message="Wacht op koppeling…"; refresh(); }
     /** Never show an old pairing code after an identity reset or revoked session. */
     public void reset(String value) { code=""; expires=""; message=value; refresh(); }
     public void message(String value) { message=value; refresh(); }
     public void network(String value, boolean connected) { network=value; online=connected; refresh(); }
-    private boolean expired() { try { return !expires.isEmpty() && !Instant.parse(expires).isAfter(Instant.now()); } catch(Exception e) { return !expires.isEmpty(); } }
-    private void refresh() { setContentDescription("NarrowVision. "+message+". "+(expired()?"Koppelcode verlopen":code)+". "+network); invalidate(); }
+    private void refresh() { setContentDescription("NarrowVision. "+message+". "+code+". "+network); invalidate(); }
     private void text(Canvas c,String value,float x,float y,float size,int color,boolean bold,Paint.Align align) {
         p.setShader(null);p.setStyle(Paint.Style.FILL);p.setColor(color);p.setTextSize(size);p.setTextAlign(align);
         p.setTypeface(bold?Typeface.create("sans-serif",Typeface.BOLD):Typeface.create("sans-serif",Typeface.NORMAL));c.drawText(value,x,y,p);
@@ -53,19 +53,18 @@ public final class PairingView extends View {
         RectF card=new RectF(406,398,1266,580);
         p.setColor(0xc009142e);c.drawRoundRect(card,24,24,p);
         p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(2);p.setShader(new LinearGradient(406,398,1266,580,0xff9737ff,0xff518bff,Shader.TileMode.CLAMP));c.drawRoundRect(card,24,24,p);p.setStyle(Paint.Style.FILL);
-        text(c,expired()?"K O P P E L C O D E   V E R L O P E N":"U W   K O P P E L C O D E",836,443,18,MUTED,true,Paint.Align.CENTER);
-        String shown=expired()?"Code verlopen":code.isEmpty()?"Even geduld…":format(code);
-        float size=code.isEmpty()||expired()?46:74;p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));p.setTextSize(size);
+        text(c,"U W   K O P P E L C O D E",836,443,18,MUTED,true,Paint.Align.CENTER);
+        String shown=code.isEmpty()?"Even geduld…":format(code);
+        float size=code.isEmpty()?46:74;p.setTypeface(Typeface.create("sans-serif",Typeface.BOLD));p.setTextSize(size);
         if(p.measureText(shown)>800)size*=800/p.measureText(shown);
         text(c,shown,836,539,size,Color.WHITE,true,Paint.Align.CENTER);
         String[] steps={"Log in op uw", "Ga naar", "Kies Player toevoegen"};String[] lines={"NarrowVision omgeving", "Players", "en vul de code in"};
         for(int i=0;i<3;i++){float x=432+i*315;p.setShader(null);p.setColor(0xff923bff);p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(3);c.drawCircle(x,640,21,p);p.setStyle(Paint.Style.FILL);text(c,""+(i+1),x,649,25,0xffc87aff,true,Paint.Align.CENTER);text(c,steps[i],x+40,632,18,MUTED,false,Paint.Align.LEFT);text(c,lines[i],x+40,658,18,Color.WHITE,false,Paint.Align.LEFT);}
-        text(c,expired()?"Vraag uw beheerder om hulp. Deze player blijft geregistreerd.":"De player start automatisch zodra de koppeling gereed is.",836,712,17,MUTED,false,Paint.Align.CENTER);
+        text(c,"De player start automatisch zodra de koppeling gereed is.",836,712,17,MUTED,false,Paint.Align.CENTER);
         text(c,"Hulp nodig? Neem contact op met uw beheerder.",52,861,17,MUTED,false,Paint.Align.LEFT);
         text(c,"D I G I T A L   S I G N A G E",1620,854,12,MUTED,false,Paint.Align.RIGHT);
         text(c,"F O R   A   B R I G H T E R   T O M O R R O W",1620,878,12,MUTED,false,Paint.Align.RIGHT);
         c.restore();
-        if(!expires.isEmpty()&&!expired())postInvalidateDelayed(1000);
     }
     static String format(String code) {String clean=code.replaceAll("[^A-Za-z0-9]","");return clean.replaceAll("(.{4})(?!$)","$1-");}
 }

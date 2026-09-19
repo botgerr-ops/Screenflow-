@@ -1,4 +1,4 @@
-import { adminClient, authenticatePlayer, corsHeaders, deliverCommands, HttpError, json, optionalInteger, optionalText, readJson, requirePost, safeError } from "../_shared/player.ts";
+import { adminClient, authenticatePlayer, corsHeaders, deliverCommands, HttpError, json, optionalInteger, optionalText, randomPairingCode, readJson, requirePost, safeError } from "../_shared/player.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
@@ -24,11 +24,40 @@ Deno.serve(async (req) => {
     } else if (playlistId === null) update.current_playlist_id = null;
     const { error } = await admin.from("devices").update(update).eq("id", player.id);
     if (error) throw error;
+
+    // Only an authenticated, unpaired player may read or refresh its own pairing code.
+    // The server is authoritative for expiry; renewal occurs no more than once per ten minutes.
+    let pairing: Record<string, unknown> = {};
+    if (player.status === "pending" && !player.organization_id) {
+      const { data: current, error: readError } = await admin.from("devices")
+        .select("pairing_code,pairing_code_expires_at")
+        .eq("id", player.id).eq("status", "pending").is("organization_id", null).maybeSingle();
+      if (readError || !current) throw new HttpError(409, "pairing_state_changed", "Playerstatus is gewijzigd");
+      let code = current.pairing_code;
+      let expiry = current.pairing_code_expires_at;
+      if (!code || !expiry || Date.parse(expiry) <= Date.now() + 30_000) {
+        let renewed = false;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          const candidate = randomPairingCode();
+          const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+          const result = await admin.from("devices")
+            .update({ pairing_code: candidate, pairing_code_expires_at: expiresAt })
+            .eq("id", player.id).eq("status", "pending").is("organization_id", null)
+            .select("pairing_code,pairing_code_expires_at").maybeSingle();
+          if (!result.error && result.data) {
+            code = result.data.pairing_code; expiry = result.data.pairing_code_expires_at;
+            renewed = true; break;
+          }
+          if (result.error?.code !== "23505") throw new HttpError(409, "pairing_state_changed", "Koppelcode vernieuwen mislukt");
+        }
+        if (!renewed) throw new HttpError(503, "pairing_retry", "Koppelcode vernieuwen mislukt");
+      }
+      pairing = { pairing_code: code, pairing_code_expires_at: expiry };
+    }
     const commands = await deliverCommands(admin, player.id);
     const knownRevision = appliedRevision ?? player.last_applied_config_revision;
     return json({ status: player.status, paired: !!player.organization_id, server_time: new Date().toISOString(),
       config_revision: player.config_revision, config_update_available: knownRevision !== player.config_revision,
-      open_commands: commands.length, commands });
+      open_commands: commands.length, commands, ...pairing });
   } catch (error) { return safeError(error); }
 });
-

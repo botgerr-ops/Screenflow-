@@ -1,7 +1,6 @@
 name: Build ScreenFlow APK
 
-# Permanent signing enabled
-
+# Permanent signing enabled; TEST branch only for the fullscreen update.
 on:
   workflow_dispatch:
   push:
@@ -26,7 +25,7 @@ jobs:
           if [ -n "$SCREENFLOW_KEYSTORE_BASE64" ]; then
             printf '%s' "$SCREENFLOW_KEYSTORE_BASE64" | base64 --decode --ignore-garbage > app/screenflow-release.keystore
           fi
-      - name: Build APK
+      - name: Build and test APK
         env:
           SCREENFLOW_KEYSTORE_PATH: screenflow-release.keystore
           SCREENFLOW_KEYSTORE_PASSWORD: ${{ secrets.SCREENFLOW_KEYSTORE_PASSWORD }}
@@ -34,15 +33,18 @@ jobs:
           SCREENFLOW_KEY_PASSWORD: ${{ secrets.SCREENFLOW_KEY_PASSWORD }}
         run: |
           gradle test
-          if [ -f app/screenflow-release.keystore ]; then
+          if [ "${GITHUB_REF_NAME}" = "recovery/android-player-0.5.5-test" ]; then
+            test -s app/screenflow-release.keystore || { echo 'Permanent release signing unavailable; refusing unupgradable debug APK'; exit 1; }
+            test -n "$SCREENFLOW_KEYSTORE_PASSWORD" && test -n "$SCREENFLOW_KEY_ALIAS" && test -n "$SCREENFLOW_KEY_PASSWORD" || { echo 'Release signing configuration incomplete'; exit 1; }
+            gradle assembleRelease
+          elif [ -f app/screenflow-release.keystore ]; then
             gradle assembleRelease
           else
             gradle assembleDebug
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: NarrowVision-Player-0.5.6-TEST-APK
+          name: NarrowVision-Player-0.5.7-TEST-Fullscreen-APK
           path: app/build/outputs/apk/**/*.apk
 
 # Permanent ScreenFlow release signing
-# Signing retry after secret correction

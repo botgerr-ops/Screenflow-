@@ -21,11 +21,12 @@ jobs:
           gradle-version: '8.9'
       - name: Validate version, package and manifest
         run: |
-          grep -q 'applicationId = "nl.screenflow.player"' app/build.gradle.kts
-          grep -q 'versionCode = 16' app/build.gradle.kts
-          grep -q 'versionName = "0.5.8-test"' app/build.gradle.kts
-          grep -q 'android.permission.RECEIVE_BOOT_COMPLETED' app/src/main/AndroidManifest.xml
-          grep -q 'nl.screenflow.player.BootReceiver' app/src/main/AndroidManifest.xml
+          grep -Fq 'applicationId = "nl.screenflow.player"' app/build.gradle.kts
+          grep -Fq 'versionCode = 16' app/build.gradle.kts
+          grep -Fq 'versionName = "0.5.8-test"' app/build.gradle.kts
+          grep -Fq 'android.permission.RECEIVE_BOOT_COMPLETED' app/src/main/AndroidManifest.xml
+          grep -Fq 'android:name=".BootReceiver"' app/src/main/AndroidManifest.xml
+          grep -Fq 'android.intent.action.BOOT_COMPLETED' app/src/main/AndroidManifest.xml
       - name: Recover existing permanent TEST signing key
         env:
           SCREENFLOW_KEYSTORE_BASE64: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 }}

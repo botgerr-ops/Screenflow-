@@ -41,7 +41,7 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: NarrowVision-Player-0.5.5-TEST-APK
+          name: NarrowVision-Player-0.5.6-TEST-APK
           path: app/build/outputs/apk/**/*.apk
 
 # Permanent ScreenFlow release signing

@@ -36,16 +36,18 @@ final class ProDvxSetup {
                     final String candidate = entry.getText().toString().trim();
                     entry.setText("");
                     new Thread(() -> {
-                        boolean valid = false;
+                        boolean stored = false;
                         try {
-                            valid = ProDvxApi.probe(candidate);
-                            if (valid) store.save(candidate);
+                            if (ProDvxApi.probe(candidate)) {
+                                store.save(candidate);
+                                stored = true;
+                            }
                         } catch (Exception ignored) { /* Never display or log bearer-token or OEM response. */ }
-                        final boolean success = valid;
+                        final boolean success = stored;
                         new Handler(Looper.getMainLooper()).post(() ->
                                 Toast.makeText(activity, success
                                         ? "ProDVX API gecontroleerd; toekomstige TEST-updates gebruiken installatie + openen."
-                                        : "ProDVX API niet bereikbaar of token ongeldig; oude updatepad blijft actief.",
+                                        : "ProDVX API niet bereikbaar, token ongeldig of opslaan mislukt; bestaande configuratie is behouden.",
                                         Toast.LENGTH_LONG).show());
                     }, "nv-prodvx-probe").start();
                 });

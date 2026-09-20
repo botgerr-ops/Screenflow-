@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="left" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#3e72ff"/><stop offset="1" stop-color="#5a48ff"/></linearGradient>
+    <linearGradient id="right" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#c34cf2"/><stop offset="1" stop-color="#5b20f3"/></linearGradient>
+    <linearGradient id="diag" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#4b7bff"/><stop offset=".48" stop-color="#7852ff"/><stop offset="1" stop-color="#d149f5"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="104" fill="#050c21"/>
+  <g transform="translate(-154 -39) scale(.985)">
+    <path d="M415 232Q415 216 429 209Q437 205 447 212L558 293V516Q558 527 548 533L438 597Q415 610 415 585Z" fill="url(#left)"/>
+    <path d="M686 303L797 238Q817 226 827 235Q832 240 832 252V598Q832 617 819 624Q811 628 801 621L686 538Z" fill="url(#right)"/>
+    <path d="M415 235Q415 217 429 209Q437 205 447 212L820 484Q832 493 832 508V607Q832 623 819 629Q811 633 801 626L426 351Q415 343 415 329Z" fill="url(#diag)"/>
+  </g>
+</svg>

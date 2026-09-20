@@ -1,0 +1,28 @@
+name: Build Windows Player TEST
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'player-windows/**'
+      - '.github/workflows/windows-player-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        shell: powershell
+        run: .\player-windows\build.ps1
+      - name: Publish TEST installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: NarrowVision-Player-0.2.0-TEST
+          path: |
+            player-windows\dist\NarrowVision-Player-0.2.0-TEST.exe
+            player-windows\dist\NarrowVision-Player-0.2.0-TEST-Setup.exe
+          if-no-files-found: error

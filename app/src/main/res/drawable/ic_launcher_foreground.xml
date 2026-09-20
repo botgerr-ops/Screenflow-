@@ -1,14 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The three original N contours and gradient stops from assets/NarrowVision_logo_vector.svg.
+     The wordmark is intentionally omitted: an Android launcher icon is displayed at small sizes.
+     All three paths are scaled uniformly and centered inside the adaptive icon safe area. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#101114" android:pathData="M18,25 Q18,20 23,20 L85,20 Q90,20 90,25 L90,69 Q90,74 85,74 L23,74 Q18,74 18,69 Z" />
-    <path android:fillColor="#F2FF62" android:pathData="M24,27 L52,27 L52,67 L24,67 Z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M56,27 L84,27 L84,45 L56,45 Z M56,49 L84,49 L84,67 L56,67 Z" />
-    <path android:fillColor="#101114" android:pathData="M33,37 L45,47 L33,57 Z" />
-    <path android:fillColor="#101114" android:pathData="M60,39 L66,33 L72,39 L76,36 L82,43 L58,43 Z M77,30 A3,3 0,1 0,77,36 A3,3 0,1 0,77,30" />
-    <path android:fillColor="#101114" android:pathData="M61,54 L79,54 Q81,54 81,56 Q81,58 79,58 L61,58 Q59,58 59,56 Q59,54 61,54 Z M61,61 L75,61 Q77,61 77,63 Q77,65 75,65 L61,65 Q59,65 59,63 Q59,61 61,61 Z" />
-    <path android:fillColor="#101114" android:pathData="M48,74 L60,74 L60,80 L70,80 Q73,80 73,84 L35,84 Q35,80 38,80 L48,80 Z" />
+    <group android:scaleX="0.14" android:scaleY="0.14"
+        android:translateX="-33.3" android:translateY="-4.7">
+        <path android:pathData="M415,232 Q415,216 429,209 Q437,205 447,212 L558,293 L558,516 Q558,527 548,533 L438,597 Q415,610 415,585 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="415" android:startY="205"
+                    android:endX="558" android:endY="610">
+                    <item android:offset="0" android:color="#3E72FF" />
+                    <item android:offset="1" android:color="#5A48FF" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M686,303 L797,238 Q817,226 827,235 Q832,240 832,252 L832,598 Q832,617 819,624 Q811,628 801,621 L686,538 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="686" android:startY="226"
+                    android:endX="686" android:endY="628">
+                    <item android:offset="0" android:color="#C34CF2" />
+                    <item android:offset="1" android:color="#5B20F3" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path android:pathData="M415,235 Q415,217 429,209 Q437,205 447,212 L820,484 Q832,493 832,508 L832,607 Q832,623 819,629 Q811,633 801,626 L426,351 Q415,343 415,329 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="415" android:startY="269"
+                    android:endX="832" android:endY="569">
+                    <item android:offset="0" android:color="#4B7BFF" />
+                    <item android:offset="0.48" android:color="#7852FF" />
+                    <item android:offset="1" android:color="#D149F5" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
 </vector>

@@ -1,0 +1,1 @@
+The 0.5.9 bootstrap APK and its source remain on this branch. A separate versionCode 18 candidate will be built from this commit; no branch represents a new Supabase environment. Keep the bootstrap APK intact for physical installation and recovery.

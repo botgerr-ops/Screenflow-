@@ -6,6 +6,10 @@ Deno.serve(async (req) => {
     requirePost(req); const body = await readJson(req); const admin = adminClient();
     const player = await authenticatePlayer(req, admin);
     const isActive = player.status === "active" && !!player.organization_id;
+    if (body.unpair_ack !== undefined && body.unpair_ack !== true)
+      throw new HttpError(400, "invalid_unpair_ack", "Ongeldige ontkoppelbevestiging");
+    if (body.unpair_ack === true && !(player.status === "blocked" && player.organization_id))
+      throw new HttpError(409, "unpair_not_pending", "Er is geen ontkoppelverzoek voor deze player");
     const update: Record<string, unknown> = {
       last_seen_at: new Date().toISOString(), manufacturer: optionalText(body, "manufacturer", 120),
       model: optionalText(body, "model", 120), os_version: optionalText(body, "os_version", 80),
@@ -18,8 +22,8 @@ Deno.serve(async (req) => {
     if (isActive && body.sync_succeeded === true) update.last_sync_at = new Date().toISOString();
     const playlistId = body.current_playlist_id;
     if (!isActive) {
-      // First heartbeat after unlink still carries the old playlist ID. Never return 400:
-      // the device must receive pending/paired=false to erase that old tenant's media.
+      // The first heartbeat after unlink carries the former tenant's playlist ID.
+      // Do not return HTTP 400: the player must receive blocked and erase its cache.
       update.current_playlist_id = null;
     } else if (playlistId !== undefined && playlistId !== null) {
       if (typeof playlistId !== "string") throw new HttpError(400, "invalid_playlist", "Ongeldige playlist");
@@ -27,12 +31,22 @@ Deno.serve(async (req) => {
       if (!playlist) throw new HttpError(400, "invalid_playlist", "Ongeldige playlist");
       update.current_playlist_id = playlistId;
     } else if (playlistId === null) update.current_playlist_id = null;
-    // Never let an in-flight active heartbeat overwrite a concurrent unpair transaction.
-    let updateQuery = admin.from("devices").update(update).eq("id", player.id).eq("status", player.status);
-    updateQuery = player.organization_id ? updateQuery.eq("organization_id", player.organization_id) : updateQuery.is("organization_id", null);
-    const { data: updated, error } = await updateQuery.select("id").maybeSingle();
+    // A concurrent unpair must not be overwritten by an old in-flight active heartbeat.
+    let query = admin.from("devices").update(update).eq("id", player.id).eq("status", player.status);
+    query = player.organization_id ? query.eq("organization_id", player.organization_id) : query.is("organization_id", null);
+    const { data: updated, error } = await query.select("id").maybeSingle();
     if (error) throw error;
     if (!updated) throw new HttpError(409, "pairing_state_changed", "Playerstatus is gewijzigd; synchroniseer opnieuw");
+
+    if (body.unpair_ack === true) {
+      // This is reached only after authenticating the physical player and its post-wipe ack.
+      // The SQL transaction releases its license and invalidates old playlist assignments.
+      const { data: result, error: ackError } = await admin.rpc("nv_player_complete_device_unpair", { p_device: player.id });
+      if (ackError || result?.status !== "completed")
+        throw new HttpError(409, "unpair_ack_failed", "Ontkoppelbevestiging kon nog niet worden verwerkt");
+      return json({ status: "pending", paired: false, server_time: new Date().toISOString(),
+        config_revision: 0, config_update_available: false, open_commands: 0, commands: [], unpair_completed: true });
+    }
 
     let pairing: Record<string, unknown> = {};
     if (player.status === "pending" && !player.organization_id) {
@@ -60,7 +74,7 @@ Deno.serve(async (req) => {
     }
     const commands = isActive ? await deliverCommands(admin, player.id) : [];
     const knownRevision = appliedRevision ?? player.last_applied_config_revision;
-    return json({ status: player.status, paired: !!player.organization_id, server_time: new Date().toISOString(),
+    return json({ status: player.status, paired: isActive, server_time: new Date().toISOString(),
       config_revision: player.config_revision, config_update_available: knownRevision !== player.config_revision,
       open_commands: commands.length, commands, ...pairing });
   } catch (error) { return safeError(error); }

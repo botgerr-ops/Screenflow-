@@ -66,6 +66,13 @@ public final class MediaCache {
         editor.apply();
     }
 
+    /** Fail closed: never keep another customer's media after a verified unpair event. */
+    public synchronized void clearAll() {
+        File[] files=directory.listFiles();
+        if(files!=null)for(File file:files)if(file.isFile()&&!file.delete())throw new IllegalStateException("Mediamap kan niet worden gewist");
+        if(!metadata.edit().clear().commit())throw new IllegalStateException("Media-index kan niet worden gewist");
+    }
+
     private String extension(String mime) {
         if ("image/jpeg".equalsIgnoreCase(mime)) return ".jpg";
         if ("image/png".equalsIgnoreCase(mime)) return ".png";

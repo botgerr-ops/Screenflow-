@@ -31,7 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** TEST only. The existing signage continues while an authenticated update is downloaded.
- * Android's installer makes the final decision and may require user confirmation.
+ * Android's installer is authoritative: unattended self-update is requested, never guaranteed.
  */
 public final class OtaUpdater {
     static final String PREFS = "narrowvision_ota_state";
@@ -168,8 +168,10 @@ public final class OtaUpdater {
         PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         params.setAppPackageName(activity.getPackageName());
         params.setSize(size);
+        // Android 12+: request an unattended, same-signer SELF-update. The system can still
+        // return STATUS_PENDING_USER_ACTION; OtaInstallReceiver retains the consent fallback.
         if (Build.VERSION.SDK_INT >= 31)
-            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED);
+            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
         int sessionId = installer.createSession(params);
         try (PackageInstaller.Session session = installer.openSession(sessionId)) {
             try (InputStream in = new FileInputStream(apk);

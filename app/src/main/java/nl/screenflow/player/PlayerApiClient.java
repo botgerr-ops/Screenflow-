@@ -17,10 +17,15 @@ public final class PlayerApiClient {
     public PlayerApiClient(PlayerIdentityStore store) { this.store = store; }
     public JSONObject bootstrap() throws Exception { return post("player-bootstrap", metadata(), false); }
     public JSONObject heartbeat(long revision, boolean syncSucceeded, String playlistId) throws Exception {
+        return heartbeat(revision, syncSucceeded, playlistId, false);
+    }
+    /** Acknowledgement is sent only after the player has stopped and erased prior tenant files. */
+    public JSONObject heartbeat(long revision, boolean syncSucceeded, String playlistId, boolean unpairAck) throws Exception {
         JSONObject body = metadata();
         body.put("config_revision", revision);
         body.put("sync_succeeded", syncSucceeded);
         if (playlistId == null) body.put("current_playlist_id", JSONObject.NULL); else body.put("current_playlist_id", playlistId);
+        if (unpairAck) body.put("unpair_ack", true);
         return post("player-heartbeat", body, true);
     }
     public JSONObject config() throws Exception { return post("player-config", new JSONObject(), true); }

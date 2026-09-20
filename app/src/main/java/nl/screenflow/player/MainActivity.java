@@ -60,8 +60,8 @@ public class MainActivity extends Activity {
   private FrameLayout playbackSurface;
   private VideoView activeVideo;
   private Future<?> pendingImage;
-  private ImageView displayedImage;
-  private Bitmap displayedBitmap;
+  private ImageView displayedImage, retiredImage;
+  private Bitmap displayedBitmap, retiredBitmap;
 
   private static final class Playable {
     final File file; final String mime; final int duration;
@@ -206,55 +206,78 @@ public class MainActivity extends Activity {
   private String fingerprint(List<Playable> values){StringBuilder out=new StringBuilder();for(Playable value:values)out.append(value.file.getName()).append(':').append(value.file.length()).append(':').append(value.duration).append(';');return out.toString();}
   private void startPlayback(){if(!playbackAuthorized||queue.isEmpty())return;activeScreen=true;handler.removeCallbacks(advance);renderCurrent();}
   private void advancePlayback(){if(!playbackAuthorized||queue.isEmpty())return;queueIndex=(queueIndex+1)%queue.size();renderCurrent();}
-  /** All image callbacks are generation-guarded and must never show content after unpair. */
-  private void clearDisplayedImage(){
+
+  /** Invalidate asynchronous decode without discarding the image still visible on screen. */
+  private void cancelPendingImage(){
     imageGeneration++;
     if(pendingImage!=null){pendingImage.cancel(true);pendingImage=null;}
-    if(displayedImage!=null){displayedImage.setImageDrawable(null);displayedImage=null;}
-    if(displayedBitmap!=null){displayedBitmap.recycle();displayedBitmap=null;}
+  }
+  private void releaseRetiredImage(){
+    ImageView old=retiredImage;Bitmap bitmap=retiredBitmap;retiredImage=null;retiredBitmap=null;
+    if(old!=null){old.setImageDrawable(null);if(old.getParent() instanceof FrameLayout)((FrameLayout)old.getParent()).removeView(old);}
+    if(bitmap!=null&&!bitmap.isRecycled())bitmap.recycle();
+  }
+  /** Revocation, video, Activity destruction and empty planning must release both image buffers. */
+  private void clearDisplayedImage(){
+    cancelPendingImage();releaseRetiredImage();
+    if(displayedImage!=null){displayedImage.setImageDrawable(null);if(displayedImage.getParent() instanceof FrameLayout)((FrameLayout)displayedImage.getParent()).removeView(displayedImage);displayedImage=null;}
+    if(displayedBitmap!=null){if(!displayedBitmap.isRecycled())displayedBitmap.recycle();displayedBitmap=null;}
   }
   private void imageFailed(){
     imageFailures++;
     if(imageFailures>=queue.size()){
       handler.removeCallbacks(advance);
-      showActiveState("Geen afbeeldingen konden worden weergegeven. Controleer de mediabestanden.");
+      // Keep the last valid frame rather than replacing it with a black/error frame.
+      if(displayedImage==null)showActiveState("Geen afbeeldingen konden worden weergegeven. Controleer de mediabestanden.");
     }else handler.postDelayed(advance,1000L);
   }
   private void renderCurrent(){
     if(!playbackAuthorized||queue.isEmpty())return;
     if(playbackSurface==null){showActiveState();if(playbackSurface==null)return;}
     handler.removeCallbacks(advance);
-    clearDisplayedImage();
-    if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}
-    playbackSurface.removeAllViews();
+    cancelPendingImage();
     Playable playable=queue.get(queueIndex);
     if(playable.mime.startsWith("image/")){
       final FrameLayout surface=playbackSurface;
       final int generation=imageGeneration, position=queueIndex;
-      ImageView image=new ImageView(this);image.setBackgroundColor(Color.BLACK);image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-      surface.addView(image,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
+      // Never clear the displayed image here: decoding may take multiple frames.
+      if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;surface.removeAllViews();}
       final int targetWidth=getResources().getDisplayMetrics().widthPixels;
       final int targetHeight=getResources().getDisplayMetrics().heightPixels;
       pendingImage=imageDecoder.submit(()->{
         Bitmap result=null;
         try{result=SampledImages.decode(playable.file,targetWidth,targetHeight);}
-        catch(java.io.IOException|RuntimeException|OutOfMemoryError decodeFailure){/* Fail closed on invalid media. */}
+        catch(java.io.IOException|RuntimeException|OutOfMemoryError decodeFailure){/* Skip invalid or oversized media safely. */}
         final Bitmap decoded=result;
         boolean posted=handler.post(()->{
           if(destroyed||!playbackAuthorized||generation!=imageGeneration||surface!=playbackSurface
-              ||position!=queueIndex||image.getParent()!=surface){if(decoded!=null)decoded.recycle();return;}
+              ||position!=queueIndex){if(decoded!=null)decoded.recycle();return;}
+          pendingImage=null;
           if(decoded==null){imageFailed();return;}
+          ImageView incoming=new ImageView(this);
+          incoming.setBackgroundColor(Color.BLACK);incoming.setScaleType(ImageView.ScaleType.FIT_CENTER);
           try{
-            image.setImageBitmap(decoded);
-            displayedImage=image;displayedBitmap=decoded;imageFailures=0;
+            incoming.setImageBitmap(decoded); // Populate BEFORE attaching to the visible surface.
+            surface.addView(incoming,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
+            // At this point the new image completely covers the old one, never black.
+            releaseRetiredImage();
+            final ImageView outgoing=displayedImage;
+            retiredImage=outgoing;retiredBitmap=displayedBitmap;
+            displayedImage=incoming;displayedBitmap=decoded;imageFailures=0;
+            // Keep outgoing bitmap through the new frame, then recycle on the UI thread.
+            if(outgoing!=null)surface.postOnAnimation(()->{if(retiredImage==outgoing)releaseRetiredImage();});
             handler.postDelayed(advance,playable.duration*1000L);
           }catch(RuntimeException|OutOfMemoryError displayFailure){
-            image.setImageDrawable(null);decoded.recycle();imageFailed();
+            if(incoming.getParent() instanceof FrameLayout)((FrameLayout)incoming.getParent()).removeView(incoming);
+            incoming.setImageDrawable(null);decoded.recycle();imageFailed();
           }
         });
         if(!posted&&decoded!=null)decoded.recycle();
       });
     }else{
+      clearDisplayedImage();
+      if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}
+      playbackSurface.removeAllViews();
       imageFailures=0;
       VideoView video=new VideoView(this);video.setBackgroundColor(Color.BLACK);video.setVideoURI(Uri.fromFile(playable.file));
       activeVideo=video;

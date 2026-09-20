@@ -13,18 +13,24 @@ public class PlayerRuntimeContractTest {
   @Test public void snapshotIsDurableAndSecretFree() throws Exception {String value=source("app/src/main/java/nl/screenflow/player/PlayerStateStore.java");assertTrue(value.contains("commit()"));assertTrue(value.contains("schedules"));assertTrue(value.contains("playlist_items"));assertFalse(value.contains("signed_url"));assertFalse(value.contains("player_secret"));assertFalse(value.contains("access_token"));}
   @Test public void offlineColdStartAndPlaybackUseSnapshotAndCache() throws Exception {
     String activity=source("app/src/main/java/nl/screenflow/player/MainActivity.java");
-    assertTrue(activity.contains("playbackAuthorized=identity.hasCredentials()"));
+    assertTrue(activity.contains("playbackAuthorized=identity.hasCredentials()&&!identity.isRecoveryRequired()"));
     assertTrue(activity.contains("if(playbackAuthorized)restoreOfflineSnapshot()"));
     assertTrue(activity.contains("if(!playbackAuthorized)return"));
     assertTrue(activity.contains("cache.local"));assertTrue(activity.contains("evaluateLocalPlanning"));
   }
-  @Test public void onlyExplicitUnauthorizedOrUnpairClearsIdentityAndSnapshot() throws Exception {
+  @Test public void unauthorizedRequiresRecoveryAndDoesNotRotateIdentity() throws Exception {
     String activity=source("app/src/main/java/nl/screenflow/player/MainActivity.java");
-    assertTrue(activity.contains("if(e.status==401){"));
-    assertTrue(activity.contains("clearTenantContent();identity.clearRejectedIdentity()"));
+    String identity=source("app/src/main/java/nl/screenflow/player/PlayerIdentityStore.java");
+    assertTrue(activity.contains("if(e.status==401||e.status==409){"));
+    assertTrue(activity.contains("identity.isRecoveryRequired()"));
+    assertTrue(activity.contains("identity.hasPriorRegistration()"));
+    assertTrue(activity.contains("identity.clearRejectedIdentity()"));
     assertTrue(activity.contains("playbackAuthorized=false;stopPlaybackImmediately();clearTenantContent()"));
     assertTrue(activity.contains("api.heartbeat(0,false,null,true)"));
     assertTrue(activity.contains("response.optBoolean(\"unpair_requested\",false)"));
+    assertTrue(identity.contains("putBoolean(RECOVERY_REQUIRED, true)"));
+    assertTrue(identity.contains("putBoolean(REGISTERED, true)"));
+    assertFalse(identity.contains(".remove(\"device_uid\")"));
     assertFalse(activity.contains("catch(Exception e){identity.clearCredentials()"));
     assertFalse(activity.contains("catch(Exception e){identity.clearRejectedIdentity()"));
   }
@@ -37,6 +43,18 @@ public class PlayerRuntimeContractTest {
     assertTrue(activity.contains("stopped.await(5,TimeUnit.SECONDS)"));
     assertTrue(activity.contains("activeVideo.stopPlayback()"));
     assertTrue(activity.contains("if(stopFailure.get()!=null)throw"));
+  }
+  @Test public void imageDecoderIsSampledOffUiAndStaleResultsAreDiscarded() throws Exception {
+    String activity=source("app/src/main/java/nl/screenflow/player/MainActivity.java");
+    String decoder=source("app/src/main/java/nl/screenflow/player/SampledImages.java");
+    assertTrue(activity.contains("imageDecoder.submit("));
+    assertTrue(activity.contains("SampledImages.decode("));
+    assertTrue(activity.contains("generation!=imageGeneration"));
+    assertTrue(activity.contains("decoded.recycle()"));
+    assertTrue(activity.contains("imageFailures>=queue.size()"));
+    assertFalse(activity.contains("setImageURI(Uri.fromFile(playable.file))"));
+    assertTrue(decoder.contains("inJustDecodeBounds = true"));
+    assertTrue(decoder.contains("ImageSampleSize.calculate("));
   }
   @Test public void serverOnlyMarksARealOpenRequestForAutomaticUnpair() throws Exception {
     String heartbeat=source("supabase/functions/player-heartbeat/index.ts");

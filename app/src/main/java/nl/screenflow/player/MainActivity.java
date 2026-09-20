@@ -2,7 +2,6 @@ package nl.screenflow.player;
 
 import android.app.Activity;
 import android.graphics.Color;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -41,7 +40,7 @@ public class MainActivity extends Activity {
   private final Handler handler=new Handler(Looper.getMainLooper());
   private final ExecutorService network=Executors.newSingleThreadExecutor(); private final SyncGate syncGate=new SyncGate(); private ConnectivityManager connectivity; private ConnectivityManager.NetworkCallback networkCallback; private boolean networkValidated;
   private PlayerIdentityStore identity; private PlayerApiClient api; private MediaCache cache; private PlayerStateStore state;
-  private TextView status,detail,networkStatus; private PairingView pairingView; private long configRevision=0,retryDelay=RETRY_MIN_MS;
+  private PairingView pairingView; private long configRevision=0,retryDelay=RETRY_MIN_MS;
   private boolean activeScreen=false, syncSucceeded=false; private String currentPlaylistId=null, playbackFingerprint="";
   /** Once the server reports unpaired/revoked, no timer or cached snapshot may resume old playback. */
   private volatile boolean playbackAuthorized=false;
@@ -74,7 +73,7 @@ public class MainActivity extends Activity {
   private void performSync(){try{
     JSONObject response;
     if(!identity.hasCredentials()){
-      // Never carry a previous tenant's snapshot into a fresh registration.
+      // A new registration must never inherit another organization's media.
       playbackAuthorized=false;clearTenantContent();
       response=api.bootstrap();identity.saveCredentials(response.getString("player_id"),response.getString("player_secret"));
       identity.savePairing(response.optString("pairing_code",""),response.optString("pairing_code_expires_at",""));showPending(response);
@@ -84,8 +83,14 @@ public class MainActivity extends Activity {
         identity.clearPairing();JSONObject config=api.config();configRevision=config.optLong("config_revision",configRevision);
         playbackAuthorized=true;applyConfig(config);syncSucceeded=true;showActiveState();
       }else{
-        // The device remains authenticated for pairing-code renewal but loses all old media.
         playbackAuthorized=false;stopPlaybackImmediately();clearTenantContent();
+        if("blocked".equals(response.optString("status"))){
+          // Only the player, AFTER deletion, may acknowledge the request. Until then the
+          // server retains the organization assignment and its occupied license.
+          response=api.heartbeat(0,false,null,true);
+          if(!"pending".equals(response.optString("status"))||response.optBoolean("paired"))
+            throw new IllegalStateException("Ontkoppeling is nog niet bevestigd");
+        }
         identity.savePairing(response.optString("pairing_code",""),response.optString("pairing_code_expires_at",""));
         showPending(response);
       }

@@ -60,3 +60,5 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             apk.sha256
           retention-days: 30
+
+# 0.5.16 TEST validation trigger after seamless-swap + post-update restart fixes

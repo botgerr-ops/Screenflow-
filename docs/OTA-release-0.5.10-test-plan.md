@@ -1,0 +1,3 @@
+# OTA update-pilot: second signed candidate
+
+The 0.5.9 TEST OTA package (versionCode 17) is the **one-time bootstrap installed locally**. A real OTA test cannot update this package to itself: Android requires a higher versionCode. Build a second, otherwise identical signed package with versionCode 18 and versionName `0.5.10-test`. Keep both permanent-signed APKs independently available; never overwrite the 0.5.9 bootstrap. Verify the signing certificate matches before uploading version 18 in Manager → Schermen → Android-updates. Test on exactly one device with explicit consent and inspect the resulting heartbeat/version and player_commands status. Do not mark OTA as physically verified based on CI or portal smoke tests alone.

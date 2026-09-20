@@ -1,8 +1,8 @@
-name: TEST Android 0.5.11 unattended OTA signed APK
+name: TEST Android 0.5.12 unattended OTA and branded icon signed APK
 on:
   push:
     branches:
-      - release/test-ota-unattended-0.5.11
+      - release/test-ota-unattended-0.5.12
     paths:
       - app/**
       - .github/workflows/test-ota-policy.yml
@@ -19,19 +19,26 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify separate TEST version and unattended installer requirements
+      - name: Verify separate TEST version, OTA unchanged and official N launcher asset
         run: |
           grep -Fq 'applicationId = "nl.screenflow.player"' app/build.gradle.kts
-          grep -Fq 'versionCode = 19' app/build.gradle.kts
-          grep -Fq 'versionName = "0.5.11-test"' app/build.gradle.kts
+          grep -Fq 'versionCode = 20' app/build.gradle.kts
+          grep -Fq 'versionName = "0.5.12-test"' app/build.gradle.kts
           grep -Fq 'android.permission.REQUEST_INSTALL_PACKAGES' app/src/main/AndroidManifest.xml
           grep -Fq 'android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION' app/src/main/AndroidManifest.xml
           grep -Fq 'android:name=".OtaInstallReceiver"' app/src/main/AndroidManifest.xml
           grep -Fq 'params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)' app/src/main/java/nl/screenflow/player/OtaUpdater.java
           if grep -Fq 'params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)' app/src/main/java/nl/screenflow/player/OtaUpdater.java; then echo 'Unexpected forced installer confirmation'; exit 1; fi
-          grep -Fq 'canRequestPackageInstalls()' app/src/main/java/nl/screenflow/player/OtaUpdater.java
           grep -Fq 'verifyApk(apk, target)' app/src/main/java/nl/screenflow/player/OtaUpdater.java
           grep -Fq 'STATUS_PENDING_USER_ACTION' app/src/main/java/nl/screenflow/player/OtaInstallReceiver.java
+          grep -Fq 'android:foreground="@drawable/ic_launcher_foreground"' app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          grep -Fq 'android:color="#0B1030"' app/src/main/res/values/colors.xml
+          for signature in 'M415,232 Q415,216 429,209' 'M686,303 L797,238' 'M415,235 Q415,217 429,209' '#3E72FF' '#5B20F3' '#D149F5'; do
+            grep -Fq "$signature" app/src/main/res/drawable/ic_launcher_foreground.xml
+          done
+          grep -Fq '@drawable/ic_launcher_foreground' app/src/main/res/mipmap-anydpi/ic_launcher.xml
+          grep -Fq '@drawable/ic_launcher_foreground' app/src/main/res/drawable/ic_launcher.xml
+          git diff --exit-code a13ecb3f01f3b43a474ede7a8838b16cc01e0946 HEAD -- app/src/main/java/nl/screenflow/player/OtaUpdater.java app/src/main/java/nl/screenflow/player/OtaInstallReceiver.java app/src/main/AndroidManifest.xml
       - name: Restore existing permanent TEST signing key
         env:
           SCREENFLOW_KEYSTORE_BASE64: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 }}
@@ -57,7 +64,7 @@ jobs:
       - name: Upload signed TEST candidate and checksum (no device rollout)
         uses: actions/upload-artifact@v4
         with:
-          name: NarrowVision-Player-0.5.11-TEST-Unattended-Candidate
+          name: NarrowVision-Player-0.5.12-TEST-Unattended-Icon
           path: |
             app/build/outputs/apk/release/app-release.apk
             apk.sha256

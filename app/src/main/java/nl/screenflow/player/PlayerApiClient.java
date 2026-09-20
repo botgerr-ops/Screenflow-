@@ -26,7 +26,11 @@ public final class PlayerApiClient {
         body.put("sync_succeeded", syncSucceeded);
         if (playlistId == null) body.put("current_playlist_id", JSONObject.NULL); else body.put("current_playlist_id", playlistId);
         if (unpairAck) body.put("unpair_ack", true);
-        return post("player-heartbeat", body, true);
+        JSONObject result = post("player-heartbeat", body, true);
+        // Server has released the old license. Fetch its freshly generated pairing code
+        // immediately rather than leaving the device on an empty pairing screen for 30 s.
+        if (unpairAck && result.optBoolean("unpair_completed")) return heartbeat(0, false, null);
+        return result;
     }
     public JSONObject config() throws Exception { return post("player-config", new JSONObject(), true); }
     private JSONObject metadata() throws Exception {

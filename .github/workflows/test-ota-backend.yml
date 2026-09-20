@@ -1,0 +1,31 @@
+name: TEST OTA player endpoint checks
+on:
+  push:
+    branches:
+      - feature/test-android-ota-0.5.8
+    paths:
+      - supabase/functions/player-update-poll/**
+      - supabase/functions/player-update-status/**
+      - .github/workflows/test-ota-backend.yml
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Check both OTA Edge Functions
+        run: |
+          deno check supabase/functions/player-update-poll/index.ts
+          deno check supabase/functions/player-update-status/index.ts
+          grep -Fq "eq('device_id',id)" supabase/functions/player-update-status/index.ts
+          grep -Fq "eq('status','approved')" supabase/functions/player-update-poll/index.ts
+      - name: Ensure anonymous players cannot poll or report status
+        run: |
+          base='https://bqapbwsvfofgnfogwhdx.supabase.co/functions/v1'
+          for route in player-update-poll player-update-status; do
+            code="$(curl --silent --show-error --max-time 20 -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data '{}' "$base/$route")"
+            test "$code" = 401 || { echo "Anonymous $route returned $code"; exit 1; }
+          done

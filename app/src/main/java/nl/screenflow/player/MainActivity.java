@@ -1,6 +1,7 @@
 package nl.screenflow.player;
 
 import android.app.Activity;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.ConnectivityManager;
@@ -34,6 +35,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -41,17 +43,25 @@ import java.util.concurrent.atomic.AtomicReference;
 public class MainActivity extends Activity {
   private static final long HEARTBEAT_MS=30_000L, RETRY_MIN_MS=10_000L;
   private final Handler handler=new Handler(Looper.getMainLooper());
-  private final ExecutorService network=Executors.newSingleThreadExecutor(); private final SyncGate syncGate=new SyncGate(); private ConnectivityManager connectivity; private ConnectivityManager.NetworkCallback networkCallback; private boolean networkValidated;
+  private final ExecutorService network=Executors.newSingleThreadExecutor();
+  private final ExecutorService imageDecoder=Executors.newSingleThreadExecutor();
+  private final SyncGate syncGate=new SyncGate();
+  private ConnectivityManager connectivity; private ConnectivityManager.NetworkCallback networkCallback; private boolean networkValidated;
   private PlayerIdentityStore identity; private PlayerApiClient api; private MediaCache cache; private PlayerStateStore state;
   private PairingView pairingView; private long configRevision=0,retryDelay=RETRY_MIN_MS;
   private boolean activeScreen=false, syncSucceeded=false; private String currentPlaylistId=null, playbackFingerprint="";
   /** Once the server reports unpaired/revoked, no timer or cached snapshot may resume old playback. */
   private volatile boolean playbackAuthorized=false;
+  private volatile boolean destroyed=false;
   private final Runnable cycle=new Runnable(){@Override public void run(){sync();}};
   private final Runnable advance=new Runnable(){@Override public void run(){advancePlayback();}};
   private final Runnable planningTick=new Runnable(){@Override public void run(){evaluateLocalPlanning();handler.postDelayed(this,15000L);}};
-  private final List<Playable> queue=new ArrayList<>(); private int queueIndex=0; private FrameLayout playbackSurface;
+  private final List<Playable> queue=new ArrayList<>(); private int queueIndex=0, imageFailures=0, imageGeneration=0;
+  private FrameLayout playbackSurface;
   private VideoView activeVideo;
+  private Future<?> pendingImage;
+  private ImageView displayedImage;
+  private Bitmap displayedBitmap;
 
   private static final class Playable {
     final File file; final String mime; final int duration;
@@ -61,7 +71,7 @@ public class MainActivity extends Activity {
   @Override protected void onCreate(Bundle savedInstanceState){
     super.onCreate(savedInstanceState);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
     identity=new PlayerIdentityStore(this);api=new PlayerApiClient(identity);cache=new MediaCache(this);state=new PlayerStateStore(this);
-    playbackAuthorized=identity.hasCredentials();
+    playbackAuthorized=identity.hasCredentials()&&!identity.isRecoveryRequired();
     showPairingScreen("Player voorbereiden…");if(playbackAuthorized)restoreOfflineSnapshot();
     connectivity=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);networkValidated=isNetworkValidated();
     networkCallback=new ConnectivityManager.NetworkCallback(){
@@ -73,11 +83,21 @@ public class MainActivity extends Activity {
 
   private boolean isNetworkValidated(){Network active=connectivity.getActiveNetwork();if(active==null)return false;NetworkCapabilities capabilities=connectivity.getNetworkCapabilities(active);return capabilities!=null&&capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);}
   private void updateNetworkState(boolean validated){boolean recovered=!networkValidated&&validated;networkValidated=validated;if(recovered){retryDelay=RETRY_MIN_MS;handler.removeCallbacks(cycle);sync();}}
-  private void sync(){syncGate.request(network,this::performSync);}
+  private void sync(){if(!destroyed)syncGate.request(network,this::performSync);}
+  private void recoveryScreen(){
+    playbackAuthorized=false;
+    identity.clearRejectedIdentity();
+    stopPlaybackImmediately();
+    clearTenantContent();
+    showPairingScreen("Identiteit herstellen via beheerder. Geen nieuwe koppelcode aangemaakt.");
+  }
   private void performSync(){try{
+    if(identity.isRecoveryRequired()||(!identity.hasCredentials()&&identity.hasPriorRegistration())){
+      recoveryScreen();return;
+    }
     JSONObject response;
     if(!identity.hasCredentials()){
-      // A new registration must never inherit another organization's media.
+      // Only a true first install may bootstrap; persist the UID before contacting the server.
       playbackAuthorized=false;clearTenantContent();
       response=api.bootstrap();identity.saveCredentials(response.getString("player_id"),response.getString("player_secret"));
       identity.savePairing(response.optString("pairing_code",""),response.optString("pairing_code_expires_at",""));showPending(response);
@@ -89,8 +109,7 @@ public class MainActivity extends Activity {
       }else{
         playbackAuthorized=false;stopPlaybackImmediately();clearTenantContent();
         if("blocked".equals(response.optString("status"))&&response.optBoolean("unpair_requested",false)){
-          // Only the player, AFTER deletion, may acknowledge the request. Until then the
-          // server retains the organization assignment and its occupied license.
+          // Only the player, AFTER deletion, may acknowledge the request.
           response=api.heartbeat(0,false,null,true);
           if(!"pending".equals(response.optString("status"))||response.optBoolean("paired"))
             throw new IllegalStateException("Ontkoppeling is nog niet bevestigd");
@@ -104,11 +123,11 @@ public class MainActivity extends Activity {
       }
     }
     retryDelay=RETRY_MIN_MS;schedule(HEARTBEAT_MS);
-  }catch(PlayerApiClient.ApiException e){if(e.status==401){
-        playbackAuthorized=false;stopPlaybackImmediately();
-        try{clearTenantContent();identity.clearRejectedIdentity();showPairingScreen("Playeridentiteit ingetrokken. Opnieuw registreren…");}
-        catch(Exception wipeError){showPairingScreen("Player geblokkeerd: cache wissen mislukt. Opnieuw proberen…");}
-      }else{restoreOfflineSnapshot();showNetworkError("Verbinding tijdelijk niet beschikbaar.");}scheduleRetry();}
+  }catch(PlayerApiClient.ApiException e){if(e.status==401||e.status==409){
+        // Mark recovery BEFORE any wipe; even a crash or wipe failure must not bootstrap.
+        try{recoveryScreen();}
+        catch(Exception wipeError){playbackAuthorized=false;showPairingScreen("Player geblokkeerd: cache wissen mislukt. Beheerder nodig.");scheduleRetry();}
+      }else{restoreOfflineSnapshot();showNetworkError("Verbinding tijdelijk niet beschikbaar.");scheduleRetry();}}
     catch(Exception e){syncSucceeded=false;restoreOfflineSnapshot();showNetworkError("Geen verbinding. Afspelen uit cache blijft alleen actief bij een bestaande koppeling.");scheduleRetry();}
   }
 
@@ -126,6 +145,7 @@ public class MainActivity extends Activity {
     handler.post(()->{
       try{
         handler.removeCallbacks(advance);queue.clear();queueIndex=0;playbackFingerprint="";currentPlaylistId=null;
+        clearDisplayedImage();
         if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}
         if(playbackSurface!=null){playbackSurface.removeAllViews();playbackSurface=null;}
         activeScreen=false;
@@ -161,7 +181,8 @@ public class MainActivity extends Activity {
     if(next.isEmpty()){stopPlayback("De actieve afspeellijst bevat geen ondersteunde media.");return;}
     String fingerprint=playlistId+"|"+fingerprint(next);currentPlaylistId=playlistId;
     if(fingerprint.equals(playbackFingerprint)&&!queue.isEmpty())return;
-    playbackFingerprint=fingerprint;queue.clear();queue.addAll(next);queueIndex=0;handler.post(()->{if(playbackAuthorized){showActiveState();handler.post(this::startPlayback);}});
+    playbackFingerprint=fingerprint;queue.clear();queue.addAll(next);queueIndex=0;imageFailures=0;
+    handler.post(()->{if(playbackAuthorized){showActiveState();handler.post(this::startPlayback);}});
   }
 
   private void cacheManifestMedia(JSONObject manifest) throws Exception {JSONArray media=manifest.optJSONArray("media");java.util.Set<String> allowed=new java.util.HashSet<>();if(media!=null)for(int i=0;i<media.length();i++){JSONObject item=media.optJSONObject(i);if(item!=null){String id=item.optString("media_id","");if(!id.isEmpty())allowed.add(id);if(item.has("signed_url"))cache.ensure(item);}}cache.pruneTo(allowed);}
@@ -185,26 +206,73 @@ public class MainActivity extends Activity {
   private String fingerprint(List<Playable> values){StringBuilder out=new StringBuilder();for(Playable value:values)out.append(value.file.getName()).append(':').append(value.file.length()).append(':').append(value.duration).append(';');return out.toString();}
   private void startPlayback(){if(!playbackAuthorized||queue.isEmpty())return;activeScreen=true;handler.removeCallbacks(advance);renderCurrent();}
   private void advancePlayback(){if(!playbackAuthorized||queue.isEmpty())return;queueIndex=(queueIndex+1)%queue.size();renderCurrent();}
-  private void renderCurrent(){if(!playbackAuthorized||queue.isEmpty())return;if(playbackSurface==null){showActiveState();if(playbackSurface==null)return;}if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}playbackSurface.removeAllViews();Playable playable=queue.get(queueIndex);
+  /** All image callbacks are generation-guarded and must never show content after unpair. */
+  private void clearDisplayedImage(){
+    imageGeneration++;
+    if(pendingImage!=null){pendingImage.cancel(true);pendingImage=null;}
+    if(displayedImage!=null){displayedImage.setImageDrawable(null);displayedImage=null;}
+    if(displayedBitmap!=null){displayedBitmap.recycle();displayedBitmap=null;}
+  }
+  private void imageFailed(){
+    imageFailures++;
+    if(imageFailures>=queue.size()){
+      handler.removeCallbacks(advance);
+      showActiveState("Geen afbeeldingen konden worden weergegeven. Controleer de mediabestanden.");
+    }else handler.postDelayed(advance,1000L);
+  }
+  private void renderCurrent(){
+    if(!playbackAuthorized||queue.isEmpty())return;
+    if(playbackSurface==null){showActiveState();if(playbackSurface==null)return;}
+    handler.removeCallbacks(advance);
+    clearDisplayedImage();
+    if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}
+    playbackSurface.removeAllViews();
+    Playable playable=queue.get(queueIndex);
     if(playable.mime.startsWith("image/")){
-      ImageView image=new ImageView(this);image.setBackgroundColor(Color.BLACK);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setImageURI(Uri.fromFile(playable.file));
-      playbackSurface.addView(image,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));handler.postDelayed(advance,playable.duration*1000L);
+      final FrameLayout surface=playbackSurface;
+      final int generation=imageGeneration, position=queueIndex;
+      ImageView image=new ImageView(this);image.setBackgroundColor(Color.BLACK);image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+      surface.addView(image,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
+      final int targetWidth=getResources().getDisplayMetrics().widthPixels;
+      final int targetHeight=getResources().getDisplayMetrics().heightPixels;
+      pendingImage=imageDecoder.submit(()->{
+        Bitmap result=null;
+        try{result=SampledImages.decode(playable.file,targetWidth,targetHeight);}
+        catch(java.io.IOException|RuntimeException|OutOfMemoryError decodeFailure){/* Fail closed on invalid media. */}
+        final Bitmap decoded=result;
+        boolean posted=handler.post(()->{
+          if(destroyed||!playbackAuthorized||generation!=imageGeneration||surface!=playbackSurface
+              ||position!=queueIndex||image.getParent()!=surface){if(decoded!=null)decoded.recycle();return;}
+          if(decoded==null){imageFailed();return;}
+          try{
+            image.setImageBitmap(decoded);
+            displayedImage=image;displayedBitmap=decoded;imageFailures=0;
+            handler.postDelayed(advance,playable.duration*1000L);
+          }catch(RuntimeException|OutOfMemoryError displayFailure){
+            image.setImageDrawable(null);decoded.recycle();imageFailed();
+          }
+        });
+        if(!posted&&decoded!=null)decoded.recycle();
+      });
     }else{
+      imageFailures=0;
       VideoView video=new VideoView(this);video.setBackgroundColor(Color.BLACK);video.setVideoURI(Uri.fromFile(playable.file));
       activeVideo=video;
-      video.setOnPreparedListener(player->{if(playbackAuthorized)video.start();});video.setOnCompletionListener(player->advancePlayback());video.setOnErrorListener((player,what,extra)->{handler.postDelayed(advance,1000);return true;});
+      video.setOnPreparedListener(player->{if(playbackAuthorized&&activeVideo==video)video.start();});
+      video.setOnCompletionListener(player->{if(playbackAuthorized&&activeVideo==video)advancePlayback();});
+      video.setOnErrorListener((player,what,extra)->{if(playbackAuthorized&&activeVideo==video)handler.postDelayed(advance,1000);return true;});
       playbackSurface.addView(video,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
     }
   }
-  private void stopPlayback(String message){queue.clear();currentPlaylistId=null;playbackFingerprint="";handler.post(()->{if(playbackAuthorized)showActiveState(message);});}
+  private void stopPlayback(String message){queue.clear();currentPlaylistId=null;playbackFingerprint="";handler.post(()->{clearDisplayedImage();if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}if(playbackAuthorized)showActiveState(message);});}
   private void schedule(long delay){handler.removeCallbacks(cycle);handler.postDelayed(cycle,delay);}
   private void scheduleRetry(){schedule(retryDelay);retryDelay=Math.min(retryDelay*2,5*60_000L);}
 
-  private void showPairingScreen(String initial){handler.post(()->{activeScreen=false;handler.removeCallbacks(advance);if(pairingView==null)pairingView=new PairingView(this);pairingView.reset(initial);pairingView.network(networkValidated?"Netwerk: verbonden":"Netwerk: verbinding maken…",networkValidated);setContentView(pairingView);});}
-  private void showPending(JSONObject response){handler.post(()->{if(playbackAuthorized)return;activeScreen=false;handler.removeCallbacks(advance);if(pairingView==null)pairingView=new PairingView(this);String code=response.optString("pairing_code",identity.pairingCode()==null?"":identity.pairingCode());String expiry=response.optString("pairing_code_expires_at",identity.pairingExpiresAt()==null?"":identity.pairingExpiresAt());pairingView.pending(code,expiry);pairingView.network(networkValidated?"Netwerk: verbonden":"Netwerk: verbinding maken…",networkValidated);setContentView(pairingView);});}
+  private void showPairingScreen(String initial){handler.post(()->{activeScreen=false;handler.removeCallbacks(advance);clearDisplayedImage();if(pairingView==null)pairingView=new PairingView(this);pairingView.reset(initial);pairingView.network(networkValidated?"Netwerk: verbonden":"Netwerk: verbinding maken…",networkValidated);setContentView(pairingView);});}
+  private void showPending(JSONObject response){handler.post(()->{if(playbackAuthorized)return;activeScreen=false;handler.removeCallbacks(advance);clearDisplayedImage();if(pairingView==null)pairingView=new PairingView(this);String code=response.optString("pairing_code",identity.pairingCode()==null?"":identity.pairingCode());String expiry=response.optString("pairing_code_expires_at",identity.pairingExpiresAt()==null?"":identity.pairingExpiresAt());pairingView.pending(code,expiry);pairingView.network(networkValidated?"Netwerk: verbonden":"Netwerk: verbinding maken…",networkValidated);setContentView(pairingView);});}
   private void showActiveState(){showActiveState(null);}
-  private void showActiveState(String message){handler.post(()->{if(!playbackAuthorized)return;if(!activeScreen){activeScreen=true;FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);playbackSurface=new FrameLayout(this);root.addView(playbackSurface,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));TextView overlay=label("NARROWVISION PLAYER",12,Color.rgb(242,255,98));overlay.setPadding(dp(16),dp(12),dp(16),dp(12));FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,FrameLayout.LayoutParams.WRAP_CONTENT,Gravity.TOP|Gravity.END);root.addView(overlay,lp);setContentView(root);}if(message!=null){playbackSurface.removeAllViews();TextView empty=label(message,19,Color.LTGRAY);playbackSurface.addView(empty,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));}});}
+  private void showActiveState(String message){handler.post(()->{if(!playbackAuthorized)return;if(!activeScreen){activeScreen=true;FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);playbackSurface=new FrameLayout(this);root.addView(playbackSurface,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));TextView overlay=label("NARROWVISION PLAYER",12,Color.rgb(242,255,98));overlay.setPadding(dp(16),dp(12),dp(16),dp(12));FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,FrameLayout.LayoutParams.WRAP_CONTENT,Gravity.TOP|Gravity.END);root.addView(overlay,lp);setContentView(root);}if(message!=null){clearDisplayedImage();playbackSurface.removeAllViews();TextView empty=label(message,19,Color.LTGRAY);playbackSurface.addView(empty,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));}});}
   private void showNetworkError(String message){handler.post(()->{if(pairingView!=null&&!activeScreen)pairingView.network("Netwerk: "+message,false);});}
   private TextView label(String text,int size,int color){TextView v=new TextView(this);v.setText(text);v.setTextSize(size);v.setTextColor(color);v.setGravity(Gravity.CENTER);return v;}private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}private void enterImmersiveMode(){getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);}
-  @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(focus)enterImmersiveMode();}@Override protected void onResume(){super.onResume();enterImmersiveMode();}@Override protected void onDestroy(){playbackAuthorized=false;handler.removeCallbacksAndMessages(null);if(connectivity!=null&&networkCallback!=null)connectivity.unregisterNetworkCallback(networkCallback);network.shutdownNow();super.onDestroy();}
+  @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(focus)enterImmersiveMode();}@Override protected void onResume(){super.onResume();enterImmersiveMode();}@Override protected void onDestroy(){destroyed=true;playbackAuthorized=false;clearDisplayedImage();if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}handler.removeCallbacksAndMessages(null);if(connectivity!=null&&networkCallback!=null)connectivity.unregisterNetworkCallback(networkCallback);network.shutdownNow();imageDecoder.shutdownNow();super.onDestroy();}
 }

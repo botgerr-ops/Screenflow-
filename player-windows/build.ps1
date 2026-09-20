@@ -44,7 +44,7 @@ Compile 'NarrowVision-Player-Setup.exe' 'winexe' @('installer\Installer.cs') @('
 
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-Copy-Item -LiteralPath $player -Destination (Join-Path $dist 'NarrowVision-Player-0.2.0-TEST.exe') -Force
-Copy-Item -LiteralPath $setup -Destination (Join-Path $dist 'NarrowVision-Player-0.2.0-TEST-Setup.exe') -Force
-Write-Host "Klaar: $(Join-Path $dist 'NarrowVision-Player-0.2.0-TEST.exe')"
-Write-Host "Klaar: $(Join-Path $dist 'NarrowVision-Player-0.2.0-TEST-Setup.exe')"
+Copy-Item -LiteralPath $player -Destination (Join-Path $dist 'NarrowVision-Player-0.2.1-TEST.exe') -Force
+Copy-Item -LiteralPath $setup -Destination (Join-Path $dist 'NarrowVision-Player-0.2.1-TEST-Setup.exe') -Force
+Write-Host "Klaar: $(Join-Path $dist 'NarrowVision-Player-0.2.1-TEST.exe')"
+Write-Host "Klaar: $(Join-Path $dist 'NarrowVision-Player-0.2.1-TEST-Setup.exe')"

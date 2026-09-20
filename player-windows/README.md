@@ -15,9 +15,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 Dit gebruikt Windows' eigen .NET Framework-compiler, bouwt de player, draait de lokale gedragstests zonder backend-aanroepen en maakt:
 
-- `dist\NarrowVision-Player-0.2.0-TEST.exe`
-- `dist\NarrowVision-Player-0.2.0-TEST-Setup.exe`
+- `dist\NarrowVision-Player-0.2.1-TEST.exe`
+- `dist\NarrowVision-Player-0.2.1-TEST-Setup.exe`
 
-Versie 0.2.0 gebruikt dezelfde productnaam en hetzelfde paarse N-icoon als Android. De functionele parity omvat pairing, heartbeat/config, versleutelde apparaatidentiteit, offline cache en planning, direct netwerkherstel, veilige ontkoppeling, intrekking en automatisch starten na Windows-aanmelding.
+Versie 0.2.1 gebruikt dezelfde productnaam en hetzelfde paarse N-icoon als Android. Afbeeldingen en video's vullen het volledige scherm met behoud van beeldverhouding; alleen overlopende buitenranden worden bij afwijkende verhoudingen afgesneden. De functionele parity omvat pairing, heartbeat/config, versleutelde apparaatidentiteit, offline cache en planning, direct netwerkherstel, veilige ontkoppeling, intrekking en automatisch starten na Windows-aanmelding.
 
 De installer heeft geen beheerdersrechten nodig, start standaard automatisch na aanmelden en behoudt playeridentiteit plus cache bij verwijderen.

@@ -17,8 +17,8 @@ using System.Windows.Shapes;
 using System.Windows.Threading;
 
 [assembly:AssemblyTitle("NarrowVision Player")]
-[assembly:AssemblyVersion("0.2.0.0")]
-[assembly:AssemblyFileVersion("0.2.0.0")]
+[assembly:AssemblyVersion("0.2.1.0")]
+[assembly:AssemblyFileVersion("0.2.1.0")]
 namespace NarrowVision {
  public sealed class PairingScreen:Canvas {
   readonly TextBlock codeLabel,messageLabel,networkLabel,caption,footer;readonly Ellipse dot;readonly Button copy;
@@ -103,9 +103,9 @@ namespace NarrowVision {
    var item=queue[index];var medium=engine.Snapshot.manifest.media.First(m=>m.media_id==item.media_id);string path=engine.MediaPath(medium);
    try{
     if(medium.mime_type.StartsWith("image/")){
-     var bitmap=new BitmapImage();bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;bitmap.UriSource=new Uri(path);bitmap.EndInit();bitmap.Freeze();surface.Children.Add(new Image{Source=bitmap,Stretch=Stretch.Uniform});slideTimer.Interval=TimeSpan.FromSeconds(Math.Max(1,item.duration_seconds));slideTimer.Start();
+     var bitmap=new BitmapImage();bitmap.BeginInit();bitmap.CacheOption=BitmapCacheOption.OnLoad;bitmap.UriSource=new Uri(path);bitmap.EndInit();bitmap.Freeze();surface.Children.Add(new Image{Source=bitmap,Stretch=Stretch.UniformToFill});slideTimer.Interval=TimeSpan.FromSeconds(Math.Max(1,item.duration_seconds));slideTimer.Start();
     }else{
-     video=new MediaElement{LoadedBehavior=MediaState.Manual,UnloadedBehavior=MediaState.Manual,Stretch=Stretch.Uniform,Source=new Uri(path)};video.MediaEnded+=(s,e)=>Advance();video.MediaFailed+=(s,e)=>{slideTimer.Interval=TimeSpan.FromSeconds(2);slideTimer.Start();};surface.Children.Add(video);video.Play();
+     video=new MediaElement{LoadedBehavior=MediaState.Manual,UnloadedBehavior=MediaState.Manual,Stretch=Stretch.UniformToFill,Source=new Uri(path)};video.MediaEnded+=(s,e)=>Advance();video.MediaFailed+=(s,e)=>{slideTimer.Interval=TimeSpan.FromSeconds(2);slideTimer.Start();};surface.Children.Add(video);video.Play();
     }
    }catch{slideTimer.Interval=TimeSpan.FromSeconds(2);slideTimer.Start();}
   }

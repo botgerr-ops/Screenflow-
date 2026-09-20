@@ -17,12 +17,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and test
         shell: powershell
-        run: .\player-windows\build.ps1
+        run: |
+          $fullScreenModes = @(Select-String -Path .\player-windows\src\Player.cs -SimpleMatch 'Stretch=Stretch.UniformToFill')
+          if ($fullScreenModes.Count -ne 2) { throw 'Afbeelding en video moeten beide schermvullend renderen.' }
+          .\player-windows\build.ps1
       - name: Publish TEST installer
         uses: actions/upload-artifact@v4
         with:
-          name: NarrowVision-Player-0.2.0-TEST
+          name: NarrowVision-Player-0.2.1-TEST
           path: |
-            player-windows\dist\NarrowVision-Player-0.2.0-TEST.exe
-            player-windows\dist\NarrowVision-Player-0.2.0-TEST-Setup.exe
+            player-windows\dist\NarrowVision-Player-0.2.1-TEST.exe
+            player-windows\dist\NarrowVision-Player-0.2.1-TEST-Setup.exe
           if-no-files-found: error

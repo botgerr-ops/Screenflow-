@@ -12,7 +12,7 @@ using System.Web.Script.Serialization;
 
 namespace NarrowVision {
  public static class Settings {
-  public const string Version="0.2.0-test";
+  public const string Version="0.2.1-test";
   public const string Api="https://bqapbwsvfofgnfogwhdx.supabase.co/functions/v1/";
   public const string Host="bqapbwsvfofgnfogwhdx.supabase.co";
   public static string DataRoot { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"NarrowVision","Player-TEST"); } }

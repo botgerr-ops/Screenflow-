@@ -18,7 +18,7 @@ namespace NarrowVisionSetup {
    string script="$ErrorActionPreference = 'Stop'\r\n$target = "+Quote(root)+"\r\nif ([IO.Path]::GetFullPath($PSScriptRoot) -ne [IO.Path]::GetFullPath($target)) { throw 'Unexpected install directory' }\r\nRemove-Item -LiteralPath "+Quote(exe)+" -ErrorAction SilentlyContinue\r\nRemove-Item -LiteralPath "+Quote(shortcut)+" -ErrorAction SilentlyContinue\r\nRemove-ItemProperty -LiteralPath 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'NarrowVisionPlayerTEST' -ErrorAction SilentlyContinue\r\nRemove-Item -LiteralPath 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NarrowVisionPlayerTEST' -ErrorAction SilentlyContinue\r\nRemove-Item -LiteralPath $PSCommandPath\r\nRemove-Item -LiteralPath $target -ErrorAction SilentlyContinue\r\n# Player identity and cached content are preserved.\r\n";
    File.WriteAllText(uninstall,script);
    using(var key=Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\NarrowVisionPlayerTEST")){
-    key.SetValue("DisplayName","NarrowVision Player");key.SetValue("DisplayVersion","0.2.0-test");key.SetValue("Publisher","NarrowVision");key.SetValue("InstallLocation",root);key.SetValue("UninstallString","powershell.exe -NoProfile -ExecutionPolicy Bypass -File \""+uninstall+"\"");key.SetValue("NoModify",1);key.SetValue("NoRepair",1);
+    key.SetValue("DisplayName","NarrowVision Player");key.SetValue("DisplayVersion","0.2.1-test");key.SetValue("Publisher","NarrowVision");key.SetValue("InstallLocation",root);key.SetValue("UninstallString","powershell.exe -NoProfile -ExecutionPolicy Bypass -File \""+uninstall+"\"");key.SetValue("NoModify",1);key.SetValue("NoRepair",1);
    }
   }
   [STAThread]public static int Main(string[] args){

@@ -6,9 +6,17 @@ Deno.serve(async (req) => {
     requirePost(req); const body = await readJson(req); const admin = adminClient();
     const player = await authenticatePlayer(req, admin);
     const isActive = player.status === "active" && !!player.organization_id;
+    let unpairRequested = false;
+    if (player.status === "blocked" && player.organization_id) {
+      const { data: request, error: requestError } = await admin.from("nv_device_unpair_requests")
+        .select("id").eq("device_id", player.id).eq("organization_id", player.organization_id)
+        .eq("status", "requested").maybeSingle();
+      if (requestError) throw requestError;
+      unpairRequested = !!request;
+    }
     if (body.unpair_ack !== undefined && body.unpair_ack !== true)
       throw new HttpError(400, "invalid_unpair_ack", "Ongeldige ontkoppelbevestiging");
-    if (body.unpair_ack === true && !(player.status === "blocked" && player.organization_id))
+    if (body.unpair_ack === true && !unpairRequested)
       throw new HttpError(409, "unpair_not_pending", "Er is geen ontkoppelverzoek voor deze player");
     const update: Record<string, unknown> = {
       last_seen_at: new Date().toISOString(), manufacturer: optionalText(body, "manufacturer", 120),
@@ -76,6 +84,6 @@ Deno.serve(async (req) => {
     const knownRevision = appliedRevision ?? player.last_applied_config_revision;
     return json({ status: player.status, paired: isActive, server_time: new Date().toISOString(),
       config_revision: player.config_revision, config_update_available: knownRevision !== player.config_revision,
-      open_commands: commands.length, commands, ...pairing });
+      open_commands: commands.length, commands, unpair_requested: unpairRequested, ...pairing });
   } catch (error) { return safeError(error); }
 });

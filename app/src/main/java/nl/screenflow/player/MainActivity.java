@@ -31,8 +31,11 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** TEST player: authenticated config polling, private media cache and scheduled fullscreen playback. */
 public class MainActivity extends Activity {
@@ -48,6 +51,7 @@ public class MainActivity extends Activity {
   private final Runnable advance=new Runnable(){@Override public void run(){advancePlayback();}};
   private final Runnable planningTick=new Runnable(){@Override public void run(){evaluateLocalPlanning();handler.postDelayed(this,15000L);}};
   private final List<Playable> queue=new ArrayList<>(); private int queueIndex=0; private FrameLayout playbackSurface;
+  private VideoView activeVideo;
 
   private static final class Playable {
     final File file; final String mime; final int duration;
@@ -84,15 +88,19 @@ public class MainActivity extends Activity {
         playbackAuthorized=true;applyConfig(config);syncSucceeded=true;showActiveState();
       }else{
         playbackAuthorized=false;stopPlaybackImmediately();clearTenantContent();
-        if("blocked".equals(response.optString("status"))){
+        if("blocked".equals(response.optString("status"))&&response.optBoolean("unpair_requested",false)){
           // Only the player, AFTER deletion, may acknowledge the request. Until then the
           // server retains the organization assignment and its occupied license.
           response=api.heartbeat(0,false,null,true);
           if(!"pending".equals(response.optString("status"))||response.optBoolean("paired"))
             throw new IllegalStateException("Ontkoppeling is nog niet bevestigd");
         }
-        identity.savePairing(response.optString("pairing_code",""),response.optString("pairing_code_expires_at",""));
-        showPending(response);
+        if("blocked".equals(response.optString("status"))){
+          identity.clearPairing();showPairingScreen("Player is beveiligd geblokkeerd. Neem contact op met uw beheerder.");
+        }else{
+          identity.savePairing(response.optString("pairing_code",""),response.optString("pairing_code_expires_at",""));
+          showPending(response);
+        }
       }
     }
     retryDelay=RETRY_MIN_MS;schedule(HEARTBEAT_MS);
@@ -113,12 +121,21 @@ public class MainActivity extends Activity {
   }
   private void stopPlaybackImmediately(){
     playbackAuthorized=false;
+    CountDownLatch stopped=new CountDownLatch(1);
+    AtomicReference<Throwable> stopFailure=new AtomicReference<>();
     handler.post(()->{
-      handler.removeCallbacks(advance);queue.clear();queueIndex=0;playbackFingerprint="";currentPlaylistId=null;
-      if(playbackSurface!=null){playbackSurface.removeAllViews();playbackSurface=null;}
-      activeScreen=false;
-      showPairingScreen("Scherm is ontkoppeld. Oude content wordt verwijderd…");
+      try{
+        handler.removeCallbacks(advance);queue.clear();queueIndex=0;playbackFingerprint="";currentPlaylistId=null;
+        if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}
+        if(playbackSurface!=null){playbackSurface.removeAllViews();playbackSurface=null;}
+        activeScreen=false;
+        showPairingScreen("Scherm is ontkoppeld. Oude content wordt verwijderd…");
+      }catch(Throwable failure){stopFailure.set(failure);}
+      finally{stopped.countDown();}
     });
+    try{if(!stopped.await(5,TimeUnit.SECONDS))throw new IllegalStateException("Afspelen kon niet veilig worden gestopt");}
+    catch(InterruptedException e){Thread.currentThread().interrupt();throw new IllegalStateException("Stoppen van afspelen onderbroken",e);}
+    if(stopFailure.get()!=null)throw new IllegalStateException("Afspelen kon niet veilig worden gestopt",stopFailure.get());
   }
 
   private void applyConfig(JSONObject config) throws Exception {
@@ -168,12 +185,13 @@ public class MainActivity extends Activity {
   private String fingerprint(List<Playable> values){StringBuilder out=new StringBuilder();for(Playable value:values)out.append(value.file.getName()).append(':').append(value.file.length()).append(':').append(value.duration).append(';');return out.toString();}
   private void startPlayback(){if(!playbackAuthorized||queue.isEmpty())return;activeScreen=true;handler.removeCallbacks(advance);renderCurrent();}
   private void advancePlayback(){if(!playbackAuthorized||queue.isEmpty())return;queueIndex=(queueIndex+1)%queue.size();renderCurrent();}
-  private void renderCurrent(){if(!playbackAuthorized||queue.isEmpty())return;if(playbackSurface==null){showActiveState();if(playbackSurface==null)return;}playbackSurface.removeAllViews();Playable playable=queue.get(queueIndex);
+  private void renderCurrent(){if(!playbackAuthorized||queue.isEmpty())return;if(playbackSurface==null){showActiveState();if(playbackSurface==null)return;}if(activeVideo!=null){activeVideo.stopPlayback();activeVideo=null;}playbackSurface.removeAllViews();Playable playable=queue.get(queueIndex);
     if(playable.mime.startsWith("image/")){
       ImageView image=new ImageView(this);image.setBackgroundColor(Color.BLACK);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setImageURI(Uri.fromFile(playable.file));
       playbackSurface.addView(image,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));handler.postDelayed(advance,playable.duration*1000L);
     }else{
       VideoView video=new VideoView(this);video.setBackgroundColor(Color.BLACK);video.setVideoURI(Uri.fromFile(playable.file));
+      activeVideo=video;
       video.setOnPreparedListener(player->{if(playbackAuthorized)video.start();});video.setOnCompletionListener(player->advancePlayback());video.setOnErrorListener((player,what,extra)->{handler.postDelayed(advance,1000);return true;});
       playbackSurface.addView(video,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
     }

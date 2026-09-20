@@ -1,7 +1,7 @@
-name: TEST Android 0.5.13 safe unpair signed APK
+name: TEST Android 0.5.14 safe unpair signed APK
 on:
   push:
-    branches: [feature/test-customer-safe-unpair-0.5.13]
+    branches: [feature/test-customer-safe-unpair-0.5.14]
   workflow_dispatch:
 jobs:
   safe-unpair:
@@ -19,8 +19,8 @@ jobs:
           gradle-version: '8.9'
       - name: Guard current working OTA installer and TEST version
         run: |
-          grep -Fq 'versionCode = 21' app/build.gradle.kts
-          grep -Fq 'versionName = "0.5.13-test"' app/build.gradle.kts
+          grep -Fq 'versionCode = 22' app/build.gradle.kts
+          grep -Fq 'versionName = "0.5.14-test"' app/build.gradle.kts
           grep -Fq 'PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED' app/src/main/java/nl/screenflow/player/OtaUpdater.java
           grep -Fq 'playbackAuthorized=false;stopPlaybackImmediately();clearTenantContent()' app/src/main/java/nl/screenflow/player/MainActivity.java
           grep -Fq 'if(!playbackAuthorized)return' app/src/main/java/nl/screenflow/player/MainActivity.java
@@ -28,6 +28,8 @@ jobs:
           grep -Fq 'state.load()!=null' app/src/main/java/nl/screenflow/player/MainActivity.java
           grep -Fq 'clearRejectedIdentity()' app/src/main/java/nl/screenflow/player/MainActivity.java
           grep -Fq 'api.heartbeat(0,false,null,true)' app/src/main/java/nl/screenflow/player/MainActivity.java
+          grep -Fq 'response.optBoolean("unpair_requested",false)' app/src/main/java/nl/screenflow/player/MainActivity.java
+          grep -Fq 'stopped.await(5,TimeUnit.SECONDS)' app/src/main/java/nl/screenflow/player/MainActivity.java
           grep -Fq 'unpair_ack' app/src/main/java/nl/screenflow/player/PlayerApiClient.java
           grep -Fq 'current_playlist_id = null' supabase/functions/player-heartbeat/index.ts
           grep -Fq 'pairing_state_changed' supabase/functions/player-heartbeat/index.ts
@@ -56,7 +58,7 @@ jobs:
           sha256sum "$APK" > apk.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: NarrowVision-Player-0.5.13-TEST-Safe-Unpair
+          name: NarrowVision-Player-0.5.14-TEST-Safe-Unpair
           path: |
             app/build/outputs/apk/release/app-release.apk
             apk.sha256

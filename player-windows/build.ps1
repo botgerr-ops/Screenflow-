@@ -13,7 +13,7 @@ if (!(Test-Path -LiteralPath $csc)) {
 }
 if (!(Test-Path -LiteralPath $csc)) { throw 'De Windows .NET Framework-compiler ontbreekt.' }
 $referenceRoot = Join-Path ${env:ProgramFiles(x86)} 'Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8'
-$explicitFrameworkReferences = @('WindowsBase','PresentationCore','PresentationFramework')
+$explicitFrameworkReferences = @('WindowsBase','PresentationCore','PresentationFramework','System.Xaml')
 
 function Compile([string]$name,[string]$target,[string[]]$sources,[string[]]$references,[string[]]$extra) {
   $output = Join-Path $root "bin\$Configuration\$name"
@@ -38,9 +38,9 @@ Compile 'NarrowVision-Player-TEST-Tests.exe' 'exe' @('src\Core.cs','tests\Tests.
 if ($LASTEXITCODE -ne 0) { throw 'Gedragstests mislukt.' }
 
 $player = Join-Path $root "bin\$Configuration\NarrowVision-Player.exe"
-Compile 'NarrowVision-Player.exe' 'winexe' @('src\Core.cs','src\Player.cs') ($coreReferences + @('WindowsBase','PresentationCore','PresentationFramework')) @("/win32manifest:$(Join-Path $root 'src\app.manifest')","/win32icon:$icon")
+Compile 'NarrowVision-Player.exe' 'winexe' @('src\Core.cs','src\Player.cs') ($coreReferences + @('WindowsBase','PresentationCore','PresentationFramework','System.Xaml')) @("/win32manifest:$(Join-Path $root 'src\app.manifest')","/win32icon:$icon")
 $setup = Join-Path $root "bin\$Configuration\NarrowVision-Player-Setup.exe"
-Compile 'NarrowVision-Player-Setup.exe' 'winexe' @('installer\Installer.cs') @('WindowsBase','PresentationCore','PresentationFramework') @("/resource:$player,player.exe","/win32icon:$icon")
+Compile 'NarrowVision-Player-Setup.exe' 'winexe' @('installer\Installer.cs') @('WindowsBase','PresentationCore','PresentationFramework','System.Xaml') @("/resource:$player,player.exe","/win32icon:$icon")
 
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force -Path $dist | Out-Null

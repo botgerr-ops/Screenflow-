@@ -30,9 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** TEST only. The existing signage continues while an authenticated update is downloaded.
- * Android's installer is authoritative: unattended self-update is requested, never guaranteed.
- */
+/** TEST only: signed, tenant-scoped OTA with an optional local ProDVX installation-and-launch route. */
 public final class OtaUpdater {
     static final String PREFS = "narrowvision_ota_state";
     static final String COMMAND = "command_id", TARGET = "target_version_code";
@@ -61,7 +59,10 @@ public final class OtaUpdater {
         if (id == null || target <= 0) return;
         if (BuildConfig.VERSION_CODE >= target) {
             worker.execute(() -> {
-                if (OtaInstallReceiver.report(activity, id, "completed", "")) prefs.edit().clear().apply();
+                // The installed version, rather than the OEM's 'installation started' reply,
+                // is authoritative evidence of completion after this process was replaced.
+                if (OtaInstallReceiver.report(activity, id, "completed", ""))
+                    prefs.edit().clear().apply();
             });
         }
     }
@@ -80,7 +81,10 @@ public final class OtaUpdater {
             OtaInstallReceiver.report(activity, id, "failed", "invalid_release_metadata");
             return;
         }
-        if (!activity.getPackageManager().canRequestPackageInstalls()) {
+        // An operator must physically provision a unique OEM bearer-token. No default token,
+        // token in the APK, remote token command, or public API access is permitted.
+        boolean vendor = ProDvxApi.isProDvxHardware() && new ProDvxTokenStore(activity).isConfigured();
+        if (!vendor && !activity.getPackageManager().canRequestPackageInstalls()) {
             OtaInstallReceiver.report(activity, id, "failed", "install_permission_required");
             activity.runOnUiThread(() -> {
                 Toast.makeText(activity, "Sta updates voor NarrowVision toe op deze player.", Toast.LENGTH_LONG).show();
@@ -97,15 +101,25 @@ public final class OtaUpdater {
                 if (!OtaUpdatePolicy.digestMatches(OtaUpdatePolicy.sha256(in), hash))
                     throw new SecurityException("apk_digest_mismatch");
             }
+            // No device API sees any APK until the package, version and signing certificate
+            // have been compared against the currently installed application.
             verifyApk(apk, target);
             SharedPreferences prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             if (!prefs.edit().putString(COMMAND, id).putInt(TARGET, target).commit())
                 throw new IllegalStateException("pending_install_not_persisted");
             OtaInstallReceiver.report(activity, id, "acknowledged", "");
-            install(apk, id, size);
+            if (vendor) {
+                String token = new ProDvxTokenStore(activity).get();
+                ProDvxApi.installAndRun(activity, apk, hash, size, target, token);
+                // The vendor installer replaces/kills this process and should reopen the player.
+                // resumePending() verifies the actual new version before reporting completion.
+            } else {
+                install(apk, id, size); // Existing generic-Android path is unchanged.
+            }
         } catch (Exception failure) {
             prefs().edit().clear().apply();
-            OtaInstallReceiver.report(activity, id, "failed", "download_or_verification_failed");
+            OtaInstallReceiver.report(activity, id, "failed", vendor
+                    ? "prodvx_api_unavailable_or_install_failed" : "download_or_verification_failed");
         } finally { if (apk.exists()) apk.delete(); }
     }
 
@@ -168,8 +182,6 @@ public final class OtaUpdater {
         PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
         params.setAppPackageName(activity.getPackageName());
         params.setSize(size);
-        // Android 12+: request an unattended, same-signer SELF-update. The system can still
-        // return STATUS_PENDING_USER_ACTION; OtaInstallReceiver retains the consent fallback.
         if (Build.VERSION.SDK_INT >= 31)
             params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
         int sessionId = installer.createSession(params);

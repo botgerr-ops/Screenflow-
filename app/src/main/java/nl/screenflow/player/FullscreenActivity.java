@@ -1,6 +1,7 @@
 package nl.screenflow.player;
 
 import android.graphics.Color;
+import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -15,13 +16,25 @@ import android.widget.VideoView;
  * Images and videos fill the display by cropping edges, never stretching.
  */
 public final class FullscreenActivity extends MainActivity {
+    private OtaPolling ota;
+
+    @Override protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        ota = new OtaPolling(this);
+        ota.start();
+    }
+
+    @Override protected void onDestroy() {
+        if (ota != null) ota.stop();
+        super.onDestroy();
+    }
+
     @Override public void setContentView(View view) {
         if (view instanceof FrameLayout) {
             FrameLayout root = (FrameLayout) view;
             if (root.getChildCount() == 2 && root.getChildAt(0) instanceof FrameLayout
                     && root.getChildAt(1) instanceof TextView
                     && "NARROWVISION PLAYER".contentEquals(((TextView) root.getChildAt(1)).getText())) {
-                // Debug watermark was layered over scheduled signage content.
                 root.removeViewAt(1);
                 root.setBackgroundColor(Color.BLACK);
                 FrameLayout surface = (FrameLayout) root.getChildAt(0);
@@ -31,12 +44,9 @@ public final class FullscreenActivity extends MainActivity {
                 surface.setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener() {
                     @Override public void onChildViewAdded(View parent, View child) {
                         if (child instanceof ImageView) {
-                            // ImageView FIT_CENTER previously produced black letterboxing.
                             ((ImageView) child).setScaleType(ImageView.ScaleType.CENTER_CROP);
                         } else if (child instanceof VideoView) {
                             VideoView video = (VideoView) child;
-                            // VideoView preserves aspect ratio by measuring a smaller view.
-                            // Zoom that measured view until it covers the screen; clip excess.
                             video.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,oright,ob) -> cropVideo(surface, video));
                             surface.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,oright,ob) -> cropVideo(surface, video));
                             video.post(() -> cropVideo(surface, video));
@@ -44,7 +54,6 @@ public final class FullscreenActivity extends MainActivity {
                     }
                     @Override public void onChildViewRemoved(View parent, View child) {
                         if (child instanceof VideoView) {
-                            // The original player owns cleanup/completion on the removed view.
                             child.setScaleX(1f);
                             child.setScaleY(1f);
                         }

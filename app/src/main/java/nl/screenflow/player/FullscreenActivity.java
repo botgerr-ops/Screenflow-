@@ -21,8 +21,14 @@ public final class FullscreenActivity extends MainActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Snapshot before resumePending() clears the completed command on its worker thread.
+        final boolean installed = ProDvxStagingCleanup.replacementConfirmed(this);
         ota = new OtaPolling(this);
         ota.start();
+        if (installed) {
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> ProDvxStagingCleanup.cleanup(app), "nv-oem-stage-cleanup").start();
+        }
     }
 
     @Override protected void onDestroy() {

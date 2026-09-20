@@ -3,7 +3,6 @@ package nl.screenflow.player;
 import android.app.Activity;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
-import android.media.MediaPlayer;
 import android.net.Uri;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -25,7 +24,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.time.DayOfWeek;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -45,6 +43,8 @@ public class MainActivity extends Activity {
   private PlayerIdentityStore identity; private PlayerApiClient api; private MediaCache cache; private PlayerStateStore state;
   private TextView status,detail,networkStatus; private PairingView pairingView; private long configRevision=0,retryDelay=RETRY_MIN_MS;
   private boolean activeScreen=false, syncSucceeded=false; private String currentPlaylistId=null, playbackFingerprint="";
+  /** Once the server reports unpaired/revoked, no timer or cached snapshot may resume old playback. */
+  private volatile boolean playbackAuthorized=false;
   private final Runnable cycle=new Runnable(){@Override public void run(){sync();}};
   private final Runnable advance=new Runnable(){@Override public void run(){advancePlayback();}};
   private final Runnable planningTick=new Runnable(){@Override public void run(){evaluateLocalPlanning();handler.postDelayed(this,15000L);}};
@@ -58,7 +58,8 @@ public class MainActivity extends Activity {
   @Override protected void onCreate(Bundle savedInstanceState){
     super.onCreate(savedInstanceState);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);enterImmersiveMode();
     identity=new PlayerIdentityStore(this);api=new PlayerApiClient(identity);cache=new MediaCache(this);state=new PlayerStateStore(this);
-    showPairingScreen("Player voorbereiden…");if(identity.hasCredentials())restoreOfflineSnapshot();
+    playbackAuthorized=identity.hasCredentials();
+    showPairingScreen("Player voorbereiden…");if(playbackAuthorized)restoreOfflineSnapshot();
     connectivity=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);networkValidated=isNetworkValidated();
     networkCallback=new ConnectivityManager.NetworkCallback(){
       @Override public void onCapabilitiesChanged(Network n,NetworkCapabilities capabilities){boolean validated=capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);handler.post(()->updateNetworkState(validated));}
@@ -73,30 +74,58 @@ public class MainActivity extends Activity {
   private void performSync(){try{
     JSONObject response;
     if(!identity.hasCredentials()){
+      // Never carry a previous tenant's snapshot into a fresh registration.
+      playbackAuthorized=false;clearTenantContent();
       response=api.bootstrap();identity.saveCredentials(response.getString("player_id"),response.getString("player_secret"));
       identity.savePairing(response.optString("pairing_code",""),response.optString("pairing_code_expires_at",""));showPending(response);
     }else{
       response=api.heartbeat(configRevision,syncSucceeded,currentPlaylistId);
       if("active".equals(response.optString("status"))&&response.optBoolean("paired")){
         identity.clearPairing();JSONObject config=api.config();configRevision=config.optLong("config_revision",configRevision);
-        applyConfig(config);syncSucceeded=true;showActiveState();
-      }else{syncSucceeded=false;currentPlaylistId=null;showPending(response);}
+        playbackAuthorized=true;applyConfig(config);syncSucceeded=true;showActiveState();
+      }else{
+        // The device remains authenticated for pairing-code renewal but loses all old media.
+        playbackAuthorized=false;stopPlaybackImmediately();clearTenantContent();
+        identity.savePairing(response.optString("pairing_code",""),response.optString("pairing_code_expires_at",""));
+        showPending(response);
+      }
     }
     retryDelay=RETRY_MIN_MS;schedule(HEARTBEAT_MS);
-  }catch(PlayerApiClient.ApiException e){if(e.status==401){identity.clearCredentials();state.clear();showPairingScreen("Playeridentiteit moet opnieuw worden gekoppeld.");}else{restoreOfflineSnapshot();showNetworkError("Verbinding tijdelijk niet beschikbaar.");}scheduleRetry();}
-    catch(Exception e){syncSucceeded=false;restoreOfflineSnapshot();showNetworkError("Geen verbinding. Afspelen uit cache blijft actief.");scheduleRetry();}
+  }catch(PlayerApiClient.ApiException e){if(e.status==401){
+        playbackAuthorized=false;stopPlaybackImmediately();
+        try{clearTenantContent();identity.clearRejectedIdentity();showPairingScreen("Playeridentiteit ingetrokken. Opnieuw registreren…");}
+        catch(Exception wipeError){showPairingScreen("Player geblokkeerd: cache wissen mislukt. Opnieuw proberen…");}
+      }else{restoreOfflineSnapshot();showNetworkError("Verbinding tijdelijk niet beschikbaar.");}scheduleRetry();}
+    catch(Exception e){syncSucceeded=false;restoreOfflineSnapshot();showNetworkError("Geen verbinding. Afspelen uit cache blijft alleen actief bij een bestaande koppeling.");scheduleRetry();}
+  }
+
+  /** Called on the serialized network executor: invalidate playback before touching private files. */
+  private void clearTenantContent(){
+    playbackAuthorized=false;syncSucceeded=false;currentPlaylistId=null;configRevision=0;
+    state.clear();
+    if(state.load()!=null)throw new IllegalStateException("Oude planning kan niet worden verwijderd");
+    cache.clearAll();
+  }
+  private void stopPlaybackImmediately(){
+    playbackAuthorized=false;
+    handler.post(()->{
+      handler.removeCallbacks(advance);queue.clear();queueIndex=0;playbackFingerprint="";currentPlaylistId=null;
+      if(playbackSurface!=null){playbackSurface.removeAllViews();playbackSurface=null;}
+      activeScreen=false;
+      showPairingScreen("Scherm is ontkoppeld. Oude content wordt verwijderd…");
+    });
   }
 
   private void applyConfig(JSONObject config) throws Exception {
+    if(!playbackAuthorized)return;
     JSONObject manifest=config.optJSONObject("manifest");
     if(manifest==null){stopPlayback("Geen configuratie ontvangen.");return;}
-    cacheManifestMedia(manifest); state.save(configRevision, manifest);
+    cacheManifestMedia(manifest);if(!playbackAuthorized)return;state.save(configRevision,manifest);
     JSONObject schedule=activeSchedule(manifest.optJSONArray("schedules"));
     if(schedule==null){stopPlayback("Geen actieve planning op dit moment.");return;}
     String playlistId=schedule.optString("playlist_id","");
     if(playlistId.isEmpty()){stopPlayback("Planning bevat geen afspeellijst.");return;}
-
-    JSONArray items=manifest.optJSONArray("playlist_items"); JSONArray media=manifest.optJSONArray("media");
+    JSONArray items=manifest.optJSONArray("playlist_items"),media=manifest.optJSONArray("media");
     Map<String,JSONObject> mediaById=new HashMap<>();
     if(media!=null)for(int i=0;i<media.length();i++){JSONObject value=media.optJSONObject(i);if(value!=null)mediaById.put(value.optString("media_id"),value);}
     List<Playable> next=new ArrayList<>();
@@ -104,95 +133,55 @@ public class MainActivity extends Activity {
       JSONObject item=items.optJSONObject(i);if(item==null||!playlistId.equals(item.optString("playlist_id")))continue;
       JSONObject source=mediaById.get(item.optString("media_id"));if(source==null)continue;
       String mime=source.optString("mime_type","");if(!mime.startsWith("image/")&&!mime.startsWith("video/"))continue;
-      File local=source.has("signed_url")?cache.ensure(source):cache.local(source.optString("media_id"),mime); if(local!=null)next.add(new Playable(local,mime,Math.max(1,item.optInt("duration_seconds",10))));
+      File local=source.has("signed_url")?cache.ensure(source):cache.local(source.optString("media_id"),mime);if(local!=null)next.add(new Playable(local,mime,Math.max(1,item.optInt("duration_seconds",10))));
     }
+    if(!playbackAuthorized)return;
     if(next.isEmpty()){stopPlayback("De actieve afspeellijst bevat geen ondersteunde media.");return;}
-    String fingerprint=playlistId+"|"+fingerprint(next);
-    currentPlaylistId=playlistId;
+    String fingerprint=playlistId+"|"+fingerprint(next);currentPlaylistId=playlistId;
     if(fingerprint.equals(playbackFingerprint)&&!queue.isEmpty())return;
-    playbackFingerprint=fingerprint;queue.clear();queue.addAll(next);queueIndex=0;handler.post(()->{showActiveState();handler.post(this::startPlayback);});
+    playbackFingerprint=fingerprint;queue.clear();queue.addAll(next);queueIndex=0;handler.post(()->{if(playbackAuthorized){showActiveState();handler.post(this::startPlayback);}});
   }
 
-  private void cacheManifestMedia(JSONObject manifest) throws Exception { JSONArray media=manifest.optJSONArray("media"); java.util.Set<String> allowed=new java.util.HashSet<>(); if(media!=null)for(int i=0;i<media.length();i++){JSONObject item=media.optJSONObject(i);if(item!=null){String id=item.optString("media_id","");if(!id.isEmpty())allowed.add(id);if(item.has("signed_url"))cache.ensure(item);}} cache.pruneTo(allowed); }
-  private void restoreOfflineSnapshot(){ try{JSONObject snapshot=state.load();if(snapshot==null)return;configRevision=Math.max(configRevision,snapshot.optLong("config_revision",0));JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);syncSucceeded=false;}catch(Exception ignored){} }
-  private void evaluateLocalPlanning(){try{JSONObject snapshot=state.load();if(snapshot==null)return;JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);}catch(Exception ignored){}}
+  private void cacheManifestMedia(JSONObject manifest) throws Exception {JSONArray media=manifest.optJSONArray("media");java.util.Set<String> allowed=new java.util.HashSet<>();if(media!=null)for(int i=0;i<media.length();i++){JSONObject item=media.optJSONObject(i);if(item!=null){String id=item.optString("media_id","");if(!id.isEmpty())allowed.add(id);if(item.has("signed_url"))cache.ensure(item);}}cache.pruneTo(allowed);}
+  private void restoreOfflineSnapshot(){if(!playbackAuthorized)return;try{JSONObject snapshot=state.load();if(snapshot==null)return;configRevision=Math.max(configRevision,snapshot.optLong("config_revision",0));JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);syncSucceeded=false;}catch(Exception ignored){}}
+  private void evaluateLocalPlanning(){if(!playbackAuthorized)return;try{JSONObject snapshot=state.load();if(snapshot==null)return;JSONObject config=new JSONObject();config.put("manifest",snapshot);applyConfig(config);}catch(Exception ignored){}}
 
   private JSONObject activeSchedule(JSONArray schedules){
-    if(schedules==null)return null;
-    List<JSONObject> matches=new ArrayList<>();
+    if(schedules==null)return null;List<JSONObject> matches=new ArrayList<>();
     for(int i=0;i<schedules.length();i++){
       JSONObject schedule=schedules.optJSONObject(i);if(schedule==null||!schedule.optBoolean("active",false))continue;
       try{
-        ZoneId zone=ZoneId.of(schedule.optString("timezone","Europe/Amsterdam"));
-        LocalDateTime now=LocalDateTime.now(zone);int day=now.getDayOfWeek().getValue()%7;
-        JSONArray configuredDays=schedule.optJSONArray("days_of_week");List<Integer> days=new ArrayList<>();
-        if(configuredDays!=null)for(int n=0;n<configuredDays.length();n++)days.add(configuredDays.optInt(n,-1));
-        LocalTime start=LocalTime.parse(schedule.optString("start_time","00:00:00"));
-        LocalTime end=LocalTime.parse(schedule.optString("end_time","23:59:59"));
+        ZoneId zone=ZoneId.of(schedule.optString("timezone","Europe/Amsterdam"));LocalDateTime now=LocalDateTime.now(zone);int day=now.getDayOfWeek().getValue()%7;
+        JSONArray configuredDays=schedule.optJSONArray("days_of_week");List<Integer> days=new ArrayList<>();if(configuredDays!=null)for(int n=0;n<configuredDays.length();n++)days.add(configuredDays.optInt(n,-1));
+        LocalTime start=LocalTime.parse(schedule.optString("start_time","00:00:00"));LocalTime end=LocalTime.parse(schedule.optString("end_time","23:59:59"));
         if(ScheduleLogic.isActive(days,day,start,end,now.toLocalTime()))matches.add(schedule);
       }catch(Exception ignored){}
     }
-    if(matches.isEmpty())return null;
-    matches.sort(Comparator.comparing(s->s.optString("start_time","00:00:00")));
-    return matches.get(0);
+    if(matches.isEmpty())return null;matches.sort(Comparator.comparing(s->s.optString("start_time","00:00:00")));return matches.get(0);
   }
 
   private String fingerprint(List<Playable> values){StringBuilder out=new StringBuilder();for(Playable value:values)out.append(value.file.getName()).append(':').append(value.file.length()).append(':').append(value.duration).append(';');return out.toString();}
-
-  private void startPlayback(){if(queue.isEmpty())return;activeScreen=true;handler.removeCallbacks(advance);renderCurrent();}
-  private void advancePlayback(){if(queue.isEmpty())return;queueIndex=(queueIndex+1)%queue.size();renderCurrent();}
-  private void renderCurrent(){
-    if(playbackSurface==null){showActiveState();if(playbackSurface==null)return;}
-    playbackSurface.removeAllViews();Playable playable=queue.get(queueIndex);
+  private void startPlayback(){if(!playbackAuthorized||queue.isEmpty())return;activeScreen=true;handler.removeCallbacks(advance);renderCurrent();}
+  private void advancePlayback(){if(!playbackAuthorized||queue.isEmpty())return;queueIndex=(queueIndex+1)%queue.size();renderCurrent();}
+  private void renderCurrent(){if(!playbackAuthorized||queue.isEmpty())return;if(playbackSurface==null){showActiveState();if(playbackSurface==null)return;}playbackSurface.removeAllViews();Playable playable=queue.get(queueIndex);
     if(playable.mime.startsWith("image/")){
       ImageView image=new ImageView(this);image.setBackgroundColor(Color.BLACK);image.setScaleType(ImageView.ScaleType.FIT_CENTER);image.setImageURI(Uri.fromFile(playable.file));
-      playbackSurface.addView(image,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
-      handler.postDelayed(advance,playable.duration*1000L);
+      playbackSurface.addView(image,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));handler.postDelayed(advance,playable.duration*1000L);
     }else{
       VideoView video=new VideoView(this);video.setBackgroundColor(Color.BLACK);video.setVideoURI(Uri.fromFile(playable.file));
-      video.setOnPreparedListener(player->{player.setLooping(false);video.start();});
-      video.setOnCompletionListener(player->advancePlayback());
-      video.setOnErrorListener((player,what,extra)->{handler.postDelayed(advance,1000);return true;});
+      video.setOnPreparedListener(player->{if(playbackAuthorized)video.start();});video.setOnCompletionListener(player->advancePlayback());video.setOnErrorListener((player,what,extra)->{handler.postDelayed(advance,1000);return true;});
       playbackSurface.addView(video,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));
     }
   }
-
-  private void stopPlayback(String message){queue.clear();currentPlaylistId=null;playbackFingerprint="";handler.post(()->showActiveState(message));}
+  private void stopPlayback(String message){queue.clear();currentPlaylistId=null;playbackFingerprint="";handler.post(()->{if(playbackAuthorized)showActiveState(message);});}
   private void schedule(long delay){handler.removeCallbacks(cycle);handler.postDelayed(cycle,delay);}
   private void scheduleRetry(){schedule(retryDelay);retryDelay=Math.min(retryDelay*2,5*60_000L);}
 
-  private void showPairingScreen(String initial) {
-    handler.post(() -> {
-      activeScreen = false;
-      handler.removeCallbacks(advance);
-      if (pairingView == null) pairingView = new PairingView(this);
-      pairingView.reset(initial);
-      pairingView.network(networkValidated ? "Netwerk: verbonden" : "Netwerk: verbinding maken…", networkValidated);
-      setContentView(pairingView);
-    });
-  }
-  private void showPending(JSONObject response) {
-    handler.post(() -> {
-      activeScreen = false;
-      handler.removeCallbacks(advance);
-      if (pairingView == null) pairingView = new PairingView(this);
-      String code = response.optString("pairing_code", identity.pairingCode() == null ? "" : identity.pairingCode());
-      String expiry = response.optString("pairing_code_expires_at", identity.pairingExpiresAt() == null ? "" : identity.pairingExpiresAt());
-      pairingView.pending(code, expiry);
-      pairingView.network(networkValidated ? "Netwerk: verbonden" : "Netwerk: verbinding maken…", networkValidated);
-      setContentView(pairingView);
-    });
-  }
+  private void showPairingScreen(String initial){handler.post(()->{activeScreen=false;handler.removeCallbacks(advance);if(pairingView==null)pairingView=new PairingView(this);pairingView.reset(initial);pairingView.network(networkValidated?"Netwerk: verbonden":"Netwerk: verbinding maken…",networkValidated);setContentView(pairingView);});}
+  private void showPending(JSONObject response){handler.post(()->{if(playbackAuthorized)return;activeScreen=false;handler.removeCallbacks(advance);if(pairingView==null)pairingView=new PairingView(this);String code=response.optString("pairing_code",identity.pairingCode()==null?"":identity.pairingCode());String expiry=response.optString("pairing_code_expires_at",identity.pairingExpiresAt()==null?"":identity.pairingExpiresAt());pairingView.pending(code,expiry);pairingView.network(networkValidated?"Netwerk: verbonden":"Netwerk: verbinding maken…",networkValidated);setContentView(pairingView);});}
   private void showActiveState(){showActiveState(null);}
-  private void showActiveState(String message){handler.post(()->{if(!activeScreen){activeScreen=true;FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);playbackSurface=new FrameLayout(this);root.addView(playbackSurface,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));TextView overlay=label("NARROWVISION PLAYER",12,Color.rgb(242,255,98));overlay.setPadding(dp(16),dp(12),dp(16),dp(12));FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,FrameLayout.LayoutParams.WRAP_CONTENT,Gravity.TOP|Gravity.END);root.addView(overlay,lp);setContentView(root);}if(message!=null){playbackSurface.removeAllViews();TextView empty=label(message,19,Color.LTGRAY);playbackSurface.addView(empty,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));}});}
-  private void showNetworkError(String message) {
-    handler.post(() -> {
-      if (pairingView != null && !activeScreen) pairingView.network("Netwerk: " + message, false);
-    });
-  }
-  private LinearLayout base(){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setGravity(Gravity.CENTER);box.setPadding(dp(42),dp(42),dp(42),dp(42));box.setBackgroundColor(Color.rgb(16,17,20));return box;}
-  private TextView label(String text,int size,int color){TextView v=new TextView(this);v.setText(text);v.setTextSize(size);v.setTextColor(color);v.setGravity(Gravity.CENTER);return v;} private View space(int size){View v=new View(this);v.setLayoutParams(new LinearLayout.LayoutParams(1,dp(size)));return v;}
-  private void badge(TextView v){v.setPadding(dp(24),dp(14),dp(24),dp(14));GradientDrawable bg=new GradientDrawable();bg.setColor(Color.rgb(242,255,98));bg.setCornerRadius(dp(16));v.setBackground(bg);} private String formatCode(String code){String clean=code.replaceAll("[^A-Za-z0-9]","");StringBuilder out=new StringBuilder();for(int i=0;i<clean.length();i++){if(i>0&&i%4==0)out.append('-');out.append(clean.charAt(i));}return out.toString();}
-  private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);} private void enterImmersiveMode(){getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);}
-  @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(focus)enterImmersiveMode();}@Override public void onResume(){super.onResume();enterImmersiveMode();}@Override protected void onDestroy(){handler.removeCallbacksAndMessages(null);if(connectivity!=null&&networkCallback!=null)connectivity.unregisterNetworkCallback(networkCallback);network.shutdownNow();super.onDestroy();}
+  private void showActiveState(String message){handler.post(()->{if(!playbackAuthorized)return;if(!activeScreen){activeScreen=true;FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.BLACK);playbackSurface=new FrameLayout(this);root.addView(playbackSurface,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));TextView overlay=label("NARROWVISION PLAYER",12,Color.rgb(242,255,98));overlay.setPadding(dp(16),dp(12),dp(16),dp(12));FrameLayout.LayoutParams lp=new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT,FrameLayout.LayoutParams.WRAP_CONTENT,Gravity.TOP|Gravity.END);root.addView(overlay,lp);setContentView(root);}if(message!=null){playbackSurface.removeAllViews();TextView empty=label(message,19,Color.LTGRAY);playbackSurface.addView(empty,new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT,FrameLayout.LayoutParams.MATCH_PARENT));}});}
+  private void showNetworkError(String message){handler.post(()->{if(pairingView!=null&&!activeScreen)pairingView.network("Netwerk: "+message,false);});}
+  private TextView label(String text,int size,int color){TextView v=new TextView(this);v.setText(text);v.setTextSize(size);v.setTextColor(color);v.setGravity(Gravity.CENTER);return v;}private int dp(int value){return Math.round(value*getResources().getDisplayMetrics().density);}private void enterImmersiveMode(){getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY|View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE);}
+  @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(focus)enterImmersiveMode();}@Override protected void onResume(){super.onResume();enterImmersiveMode();}@Override protected void onDestroy(){playbackAuthorized=false;handler.removeCallbacksAndMessages(null);if(connectivity!=null&&networkCallback!=null)connectivity.unregisterNetworkCallback(networkCallback);network.shutdownNow();super.onDestroy();}
 }

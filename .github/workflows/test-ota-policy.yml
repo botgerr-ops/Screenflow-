@@ -1,4 +1,4 @@
-name: TEST Android OTA policy (no install or deployment)
+name: TEST Android OTA bootstrap signed APK
 on:
   push:
     branches:
@@ -8,7 +8,7 @@ on:
       - .github/workflows/test-ota-policy.yml
   workflow_dispatch:
 jobs:
-  ota-policy:
+  signed-ota-bootstrap:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,14 +19,41 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Reject accidental package or release baseline changes
+      - name: Verify package and upgrade version
         run: |
           grep -Fq 'applicationId = "nl.screenflow.player"' app/build.gradle.kts
-          grep -Fq 'versionCode = 16' app/build.gradle.kts
-          grep -Fq 'versionName = "0.5.8-test"' app/build.gradle.kts
+          grep -Fq 'versionCode = 17' app/build.gradle.kts
+          grep -Fq 'versionName = "0.5.9-test-ota"' app/build.gradle.kts
+          grep -Fq 'android.permission.REQUEST_INSTALL_PACKAGES' app/src/main/AndroidManifest.xml
+          grep -Fq 'android:name=".OtaInstallReceiver"' app/src/main/AndroidManifest.xml
           grep -Fq 'nv-player-releases/' app/src/main/java/nl/screenflow/player/OtaUpdatePolicy.java
-      - name: Run JVM unit tests and compile Android APK (never publish)
+      - name: Restore permanent TEST signing key (never publish unsigned APK)
+        env:
+          SCREENFLOW_KEYSTORE_BASE64: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 }}
         run: |
-          gradle test assembleDebug
-          test -s app/build/outputs/apk/debug/app-debug.apk
-          echo 'PASS: OTA validation tests and debug build; no release signed, installed, or deployed.'
+          test -n "$SCREENFLOW_KEYSTORE_BASE64" || { echo 'Missing permanent signing key'; exit 1; }
+          printf '%s' "$SCREENFLOW_KEYSTORE_BASE64" | base64 --decode --ignore-garbage > app/screenflow-release.keystore
+          test -s app/screenflow-release.keystore
+      - name: Unit tests and signed release build
+        env:
+          SCREENFLOW_KEYSTORE_PATH: screenflow-release.keystore
+          SCREENFLOW_KEYSTORE_PASSWORD: ${{ secrets.SCREENFLOW_KEYSTORE_PASSWORD }}
+          SCREENFLOW_KEY_ALIAS: ${{ secrets.SCREENFLOW_KEY_ALIAS }}
+          SCREENFLOW_KEY_PASSWORD: ${{ secrets.SCREENFLOW_KEY_PASSWORD }}
+        run: |
+          test -n "$SCREENFLOW_KEYSTORE_PASSWORD" && test -n "$SCREENFLOW_KEY_ALIAS" && test -n "$SCREENFLOW_KEY_PASSWORD"
+          gradle --no-daemon test assembleRelease
+          test -s app/build/outputs/apk/release/app-release.apk
+          unzip -t app/build/outputs/apk/release/app-release.apk >/dev/null
+          SIGNER="$(find "$ANDROID_HOME/build-tools" -path '*/apksigner' | sort -V | tail -1)"
+          test -x "$SIGNER"
+          "$SIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk
+          sha256sum app/build/outputs/apk/release/app-release.apk | tee apk.sha256
+      - name: Upload installable APK and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: NarrowVision-Player-0.5.9-TEST-OTA-Bootstrap
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            apk.sha256
+          retention-days: 30

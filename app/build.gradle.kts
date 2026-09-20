@@ -3,7 +3,7 @@ plugins { id("com.android.application") }
 dependencies { testImplementation("junit:junit:4.13.2") }
 
 val signingStorePath = System.getenv("SCREENFLOW_KEYSTORE_PATH")
-val signingStorePassword = System.getenv("SCREENFLOW_KEYSTORE_PASSWORD")
+val signingStorePassword = System.getenv("SCREENFLOW_STORE_PASSWORD") ?: System.getenv("SCREENFLOW_KEYSTORE_PASSWORD")
 val signingKeyAlias = System.getenv("SCREENFLOW_KEY_ALIAS")
 val signingKeyPassword = System.getenv("SCREENFLOW_KEY_PASSWORD")
 val hasReleaseSigning = listOf(signingStorePath, signingStorePassword, signingKeyAlias, signingKeyPassword).all { !it.isNullOrBlank() }
@@ -18,8 +18,8 @@ android {
         applicationId = "nl.screenflow.player"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "0.5.12-test"
+        versionCode = 21
+        versionName = "0.5.13-test"
         buildConfigField("String", "PLAYER_API_BASE_URL", "\"https://bqapbwsvfofgnfogwhdx.supabase.co/functions/v1\"")
     }
 

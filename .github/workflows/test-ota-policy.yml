@@ -31,8 +31,8 @@ jobs:
           if grep -Fq 'params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)' app/src/main/java/nl/screenflow/player/OtaUpdater.java; then echo 'Unexpected forced installer confirmation'; exit 1; fi
           grep -Fq 'verifyApk(apk, target)' app/src/main/java/nl/screenflow/player/OtaUpdater.java
           grep -Fq 'STATUS_PENDING_USER_ACTION' app/src/main/java/nl/screenflow/player/OtaInstallReceiver.java
-          grep -Fq 'android:foreground="@drawable/ic_launcher_foreground"' app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
-          grep -Fq 'android:color="#0B1030"' app/src/main/res/values/colors.xml
+          grep -Fq '<foreground android:drawable="@drawable/ic_launcher_foreground"' app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          grep -Fq '<color name="launcher_background">#0B1030</color>' app/src/main/res/values/colors.xml
           for signature in 'M415,232 Q415,216 429,209' 'M686,303 L797,238' 'M415,235 Q415,217 429,209' '#3E72FF' '#5B20F3' '#D149F5'; do
             grep -Fq "$signature" app/src/main/res/drawable/ic_launcher_foreground.xml
           done

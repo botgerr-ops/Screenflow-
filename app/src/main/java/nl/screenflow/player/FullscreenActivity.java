@@ -2,6 +2,7 @@ package nl.screenflow.player;
 
 import android.graphics.Color;
 import android.os.Bundle;
+import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -29,6 +30,15 @@ public final class FullscreenActivity extends MainActivity {
         super.onDestroy();
     }
 
+    /** A locally attached USB keyboard can provision the OEM token without cloud exposure. */
+    @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_F9 && event.getRepeatCount() == 0) {
+            ProDvxSetup.show(this);
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
     @Override public void setContentView(View view) {
         if (view instanceof FrameLayout) {
             FrameLayout root = (FrameLayout) view;
@@ -37,6 +47,9 @@ public final class FullscreenActivity extends MainActivity {
                     && "NARROWVISION PLAYER".contentEquals(((TextView) root.getChildAt(1)).getText())) {
                 root.removeViewAt(1);
                 root.setBackgroundColor(Color.BLACK);
+                // Physical long-press (or USB F9) is for local provisioning only.
+                // This surface never displays or transmits the OEM token.
+                root.setOnLongClickListener(v -> { ProDvxSetup.show(this); return true; });
                 FrameLayout surface = (FrameLayout) root.getChildAt(0);
                 surface.setBackgroundColor(Color.BLACK);
                 surface.setClipChildren(true);

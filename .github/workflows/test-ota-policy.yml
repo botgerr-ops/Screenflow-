@@ -1,8 +1,8 @@
-name: TEST Android 0.5.10 OTA payload signed APK
+name: TEST Android 0.5.11 unattended OTA signed APK
 on:
   push:
     branches:
-      - release/test-ota-0.5.10
+      - release/test-ota-unattended-0.5.11
     paths:
       - app/**
       - .github/workflows/test-ota-policy.yml
@@ -19,13 +19,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify package and update version
+      - name: Verify separate TEST version and unattended installer requirements
         run: |
           grep -Fq 'applicationId = "nl.screenflow.player"' app/build.gradle.kts
-          grep -Fq 'versionCode = 18' app/build.gradle.kts
-          grep -Fq 'versionName = "0.5.10-test"' app/build.gradle.kts
+          grep -Fq 'versionCode = 19' app/build.gradle.kts
+          grep -Fq 'versionName = "0.5.11-test"' app/build.gradle.kts
           grep -Fq 'android.permission.REQUEST_INSTALL_PACKAGES' app/src/main/AndroidManifest.xml
+          grep -Fq 'android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION' app/src/main/AndroidManifest.xml
           grep -Fq 'android:name=".OtaInstallReceiver"' app/src/main/AndroidManifest.xml
+          grep -Fq 'params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)' app/src/main/java/nl/screenflow/player/OtaUpdater.java
+          if grep -Fq 'params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)' app/src/main/java/nl/screenflow/player/OtaUpdater.java; then echo 'Unexpected forced installer confirmation'; exit 1; fi
+          grep -Fq 'canRequestPackageInstalls()' app/src/main/java/nl/screenflow/player/OtaUpdater.java
+          grep -Fq 'verifyApk(apk, target)' app/src/main/java/nl/screenflow/player/OtaUpdater.java
+          grep -Fq 'STATUS_PENDING_USER_ACTION' app/src/main/java/nl/screenflow/player/OtaInstallReceiver.java
       - name: Restore existing permanent TEST signing key
         env:
           SCREENFLOW_KEYSTORE_BASE64: ${{ secrets.SCREENFLOW_KEYSTORE_BASE64 }}
@@ -48,10 +54,10 @@ jobs:
           test -x "$SIGNER"
           "$SIGNER" verify --print-certs app/build/outputs/apk/release/app-release.apk
           sha256sum app/build/outputs/apk/release/app-release.apk | tee apk.sha256
-      - name: Upload signed update package and checksum
+      - name: Upload signed TEST candidate and checksum (no device rollout)
         uses: actions/upload-artifact@v4
         with:
-          name: NarrowVision-Player-0.5.10-TEST-OTA-Update
+          name: NarrowVision-Player-0.5.11-TEST-Unattended-Candidate
           path: |
             app/build/outputs/apk/release/app-release.apk
             apk.sha256

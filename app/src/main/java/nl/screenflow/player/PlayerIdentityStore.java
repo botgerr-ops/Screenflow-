@@ -15,8 +15,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Stores the device identity separately from the player secret. The secret is AES-GCM encrypted
- * with a non-exportable Android Keystore key; clearing app data intentionally creates a new UID. */
+/** Keeps the hardware installation UID and encrypted player secret in private app storage. */
 public final class PlayerIdentityStore {
     private static final String PREFS = "narrowvision_player_identity";
     private static final String KEY_ALIAS = "narrowvision.player.secret.v1";
@@ -34,9 +33,16 @@ public final class PlayerIdentityStore {
     public void savePairing(String code, String expiresAt) { prefs.edit().putString("pairing_code", code).putString("pairing_expires_at", expiresAt).apply(); }
     public void clearPairing() { prefs.edit().remove("pairing_code").remove("pairing_expires_at").apply(); }
     public boolean hasCredentials() { return playerId() != null && secret() != null; }
-    public void clearCredentials() { prefs.edit().remove("player_id").remove("secret").remove("pairing_code").remove("pairing_expires_at").apply(); }
+    public void clearCredentials() { prefs.edit().remove("player_id").remove("secret").remove("pairing_code").remove("pairing_expires_at").commit(); }
+    /** On a real 401, the server may still own the prior UID. Use a fresh installation UID. */
+    public void clearRejectedIdentity() {
+        if (!prefs.edit().remove("player_id").remove("secret").remove("pairing_code")
+                .remove("pairing_expires_at").remove("device_uid").commit())
+            throw new IllegalStateException("Playeridentiteit kon niet worden ingetrokken");
+    }
     public void saveCredentials(String playerId, String secret) throws Exception {
-        prefs.edit().putString("player_id", playerId).putString("secret", encrypt(secret)).apply();
+        if (!prefs.edit().putString("player_id", playerId).putString("secret", encrypt(secret)).commit())
+            throw new IllegalStateException("Playeridentiteit opslaan mislukt");
     }
     public String secret() {
         try { String value = prefs.getString("secret", null); return value == null ? null : decrypt(value); }

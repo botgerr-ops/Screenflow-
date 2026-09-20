@@ -12,11 +12,15 @@ if (!(Test-Path -LiteralPath $csc)) {
   $csc = Join-Path $framework 'csc.exe'
 }
 if (!(Test-Path -LiteralPath $csc)) { throw 'De Windows .NET Framework-compiler ontbreekt.' }
+$referenceRoot = Join-Path ${env:ProgramFiles(x86)} 'Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8'
 
 function Compile([string]$name,[string]$target,[string[]]$sources,[string[]]$references,[string[]]$extra) {
   $output = Join-Path $root "bin\$Configuration\$name"
   $arguments = @('/nologo','/optimize+','/langversion:5',"/target:$target","/out:$output")
-  $arguments += $references | ForEach-Object { "/reference:$_.dll" }
+  $arguments += $references | ForEach-Object {
+    $candidate = Join-Path $referenceRoot "$_.dll"
+    if (Test-Path -LiteralPath $candidate) { "/reference:$candidate" } else { "/reference:$_.dll" }
+  }
   $arguments += $extra
   $arguments += $sources | ForEach-Object { Join-Path $root $_ }
   & $csc $arguments

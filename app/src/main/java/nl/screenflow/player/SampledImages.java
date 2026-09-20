@@ -16,13 +16,13 @@ final class SampledImages {
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Invalid image");
-        // Never use the compressed byte count to size a bitmap. Bound its decoded pixels.
-        int width = Math.max(1, Math.min(1920, displayWidth));
-        int height = Math.max(1, Math.min(1080, displayHeight));
+        // Bound decompressed pixels, not the compressed byte count; preserve portrait dimensions.
+        final boolean landscape = displayWidth >= displayHeight;
+        int width = Math.max(1, Math.min(landscape ? 1920 : 1080, displayWidth));
+        int height = Math.max(1, Math.min(landscape ? 1080 : 1920, displayHeight));
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = ImageSampleSize.calculate(bounds.outWidth, bounds.outHeight, width, height);
-        options.inPreferredConfig = Bitmap.Config.RGB_565;
-        options.inDither = true;
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888; // Preserve transparent PNG assets.
         Bitmap result = BitmapFactory.decodeFile(file.getAbsolutePath(), options);
         if (result == null) throw new IOException("Image decode failed");
         return result;

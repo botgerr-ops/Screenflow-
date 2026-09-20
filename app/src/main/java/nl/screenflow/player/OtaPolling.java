@@ -1,6 +1,7 @@
 package nl.screenflow.player;
 
 import android.app.Activity;
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import org.json.JSONObject;
@@ -19,7 +20,7 @@ final class OtaPolling {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final OtaUpdater updater;
-    private boolean stopped;
+    private volatile boolean stopped;
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (stopped) return;
@@ -33,6 +34,8 @@ final class OtaPolling {
     void stop() { stopped = true; handler.removeCallbacks(tick); worker.shutdownNow(); updater.shutdown(); }
 
     private void poll() {
+        if (activity.getSharedPreferences(OtaUpdater.PREFS, Context.MODE_PRIVATE).contains(OtaUpdater.COMMAND))
+            return; // A prior APK is already staged or awaits Android's install confirmation.
         PlayerIdentityStore identity = new PlayerIdentityStore(activity);
         if (!identity.hasCredentials()) return;
         HttpURLConnection connection = null;

@@ -18,8 +18,8 @@ android {
         applicationId = "nl.screenflow.player"
         minSdk = 26
         targetSdk = 34
-        versionCode = 18
-        versionName = "0.5.10-test"
+        versionCode = 19
+        versionName = "0.5.11-test"
         buildConfigField("String", "PLAYER_API_BASE_URL", "\"https://bqapbwsvfofgnfogwhdx.supabase.co/functions/v1\"")
     }
 
